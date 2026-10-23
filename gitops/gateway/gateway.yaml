@@ -3,6 +3,8 @@ kind: Gateway
 metadata:
   name: public
   namespace: gateway
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
 spec:
   gatewayClassName: nginx
   infrastructure:
@@ -13,6 +15,24 @@ spec:
       port: 80
       protocol: HTTP
       hostname: martin.diogo.world
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - voting
+                  - gateway
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: martin.diogo.world
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: martin-diogo-world-tls
       allowedRoutes:
         namespaces:
           from: Selector
