@@ -37,3 +37,27 @@ output "argocd_version" {
 output "node_iam_role_name" {
   value = module.eks.node_iam_role_name
 }
+
+output "db_address" {
+  value = aws_db_instance.this.address
+}
+
+output "db_port" {
+  value = aws_db_instance.this.port
+}
+
+output "db_name" {
+  value = aws_db_instance.this.db_name
+}
+
+output "db_secret_arn" {
+  value = aws_db_instance.this.master_user_secret[0].secret_arn
+}
+
+output "valkey_primary_endpoint" {
+  value = aws_elasticache_replication_group.this.primary_endpoint_address
+}
+
+output "valkey_port" {
+  value = aws_elasticache_replication_group.this.port
+}
