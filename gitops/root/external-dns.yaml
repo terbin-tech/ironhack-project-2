@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: project-2
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns/
+    chart: external-dns
+    targetRevision: 1.23.0
+    helm:
+      valuesObject:
+        provider:
+          name: aws
+        sources:
+          - gateway-httproute
+        policy: sync
+        registry: txt
+        txtOwnerId: martin-project-2
+        domainFilters:
+          - martin.diogo.world
+        extraArgs:
+          - --aws-zone-match-parent
+          - --zone-id-filter=Z06626683QXS56B0ODY18
+          - --dry-run
+        serviceAccount:
+          name: external-dns
+        env:
+          - name: AWS_DEFAULT_REGION
+            value: us-east-1
+  destination:
+    name: in-cluster
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
