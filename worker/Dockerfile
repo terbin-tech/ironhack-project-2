@@ -17,6 +17,12 @@ WORKDIR /app
 # Copy the published output from the build stage
 COPY --from=build /app/publish ./
 
+# RDS CA bundle for TLS to Postgres (DB_SSL_ROOT_CERT). --chmod because ADD from a URL
+# writes mode 600; the file sits directly in /usr/local/share because a
+# directory BuildKit creates would get the same mode and the non-root user
+# could not enter it.
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/rds-global-bundle.pem
+
 # Set environment variables (can be overridden at runtime)
 ENV DB_HOST=db
 ENV DB_USERNAME=postgres

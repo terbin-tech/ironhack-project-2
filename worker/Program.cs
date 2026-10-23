@@ -1,8 +1,6 @@
 using System;
 using System.Data;
 using System.Data.Common;
-using System.Linq;
-using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using Newtonsoft.Json;
@@ -21,11 +19,11 @@ namespace Worker
             {
                 // Fetch configuration from environment variables
                 var dbHost = Environment.GetEnvironmentVariable("DB_HOST") ?? "db";
-                var dbUsername = Environment.GetEnvironmentVariable("DB_USERNAME") ?? "postgres";
-                var dbPassword = Environment.GetEnvironmentVariable("DB_PASSWORD") ?? "postgres";
                 var dbName = Environment.GetEnvironmentVariable("DB_NAME") ?? "postgres";
                 
                 var redisHost = Environment.GetEnvironmentVariable("REDIS_HOST") ?? "redis";
+                var redisPort = Environment.GetEnvironmentVariable("REDIS_PORT") ?? "6379";
+                var redisTls = Environment.GetEnvironmentVariable("REDIS_TLS") == "true";
                 var votingMode = Environment.GetEnvironmentVariable("VOTING_MODE");
                 if (string.IsNullOrEmpty(votingMode))
                 {
@@ -37,10 +35,12 @@ namespace Worker
                     return 1;
                 }
 
-                // Construct the connection strings
-                var pgConnectionString = $"Server={dbHost};Username={dbUsername};Password={dbPassword};Database={dbName}";
-                Console.WriteLine($"Connecting to db: host={dbHost} user={dbUsername} database={dbName}");
-                var redisConnectionString = redisHost;
+                var dbTls = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DB_SSL_ROOT_CERT"));
+                Console.WriteLine($"Connecting to db: host={dbHost} database={dbName} tls={(dbTls ? "on" : "off")}");
+
+                // The Postgres connection string is built per attempt (see BuildPgConnectionString)
+                var redisConfiguration = $"{redisHost}:{redisPort}" + (redisTls ? ",ssl=true,checkCertificateRevocation=false" : "");
+                Console.WriteLine($"Connecting to redis: host={redisHost} port={redisPort} tls={(redisTls ? "on" : "off")}");
 
                 NpgsqlConnection? pgsql = null;
                 ConnectionMultiplexer? redisConn = null;
@@ -67,7 +67,7 @@ namespace Worker
                         if (redisStale)
                         {
                             DisposeQuietly(redisConn);
-                            redisConn = OpenRedisConnection(redisConnectionString);
+                            redisConn = OpenRedisConnection(redisConfiguration);
                             redis = redisConn.GetDatabase();
                             redisStale = false;
                         }
@@ -81,7 +81,7 @@ namespace Worker
                         if (dbStale || pgsql == null || pgsql.State != ConnectionState.Open)
                         {
                             DisposeQuietly(pgsql);
-                            pgsql = OpenDbConnection(pgConnectionString);
+                            pgsql = OpenDbConnection(dbHost, dbName);
                             dbStale = false;
                         }
 
@@ -176,7 +176,40 @@ namespace Worker
             }
         }
 
-        private static NpgsqlConnection OpenDbConnection(string connectionString)
+        // A value from the file named by <name>_FILE when set (read now, so a rotated
+        // secret is picked up), else from <name>, else the fallback.
+        private static string ReadSetting(string name, string fallback)
+        {
+            var file = Environment.GetEnvironmentVariable(name + "_FILE");
+            if (!string.IsNullOrEmpty(file))
+            {
+                return File.ReadAllText(file).Trim();
+            }
+            return Environment.GetEnvironmentVariable(name) ?? fallback;
+        }
+
+        private static string BuildPgConnectionString(string dbHost, string dbName)
+        {
+            var builder = new NpgsqlConnectionStringBuilder
+            {
+                Host = dbHost,
+                Username = ReadSetting("DB_USERNAME", "postgres"),
+                Password = ReadSetting("DB_PASSWORD", "postgres"),
+                Database = dbName,
+                Timeout = 5,
+                CommandTimeout = 10,
+                GssEncryptionMode = GssEncryptionMode.Disable
+            };
+            var rootCert = Environment.GetEnvironmentVariable("DB_SSL_ROOT_CERT");
+            if (!string.IsNullOrEmpty(rootCert))
+            {
+                builder.SslMode = SslMode.VerifyFull;
+                builder.RootCertificate = rootCert;
+            }
+            return builder.ConnectionString;
+        }
+
+        private static NpgsqlConnection OpenDbConnection(string dbHost, string dbName)
         {
             NpgsqlConnection connection;
 
@@ -184,18 +217,13 @@ namespace Worker
             {
                 try
                 {
-                    connection = new NpgsqlConnection(connectionString);
+                    connection = new NpgsqlConnection(BuildPgConnectionString(dbHost, dbName));
                     connection.Open();
                     break;
                 }
-                catch (SocketException)
+                catch (Exception ex) when (ex is SocketException || ex is DbException)
                 {
-                    Console.Error.WriteLine("Waiting for db");
-                    Thread.Sleep(1000);
-                }
-                catch (DbException)
-                {
-                    Console.Error.WriteLine("Waiting for db");
+                    Console.Error.WriteLine($"Waiting for db: {ex.Message}");
                     Thread.Sleep(1000);
                 }
             }
@@ -220,31 +248,22 @@ namespace Worker
             return connection;
         }
 
-        private static ConnectionMultiplexer OpenRedisConnection(string hostname)
+        private static ConnectionMultiplexer OpenRedisConnection(string configuration)
         {
             while (true)
             {
                 try
                 {
-                    // Use IP address to workaround https://github.com/StackExchange/StackExchange.Redis/issues/410
-                    var ipAddress = GetIp(hostname);
-                    Console.WriteLine($"Found redis at {ipAddress}");
                     Console.Error.WriteLine("Connecting to redis");
-                    return ConnectionMultiplexer.Connect(ipAddress);
+                    return ConnectionMultiplexer.Connect(configuration);
                 }
                 catch (Exception ex) when (ex is RedisConnectionException || ex is SocketException || ex is InvalidOperationException)
                 {
-                    Console.Error.WriteLine("Waiting for redis");
+                    Console.Error.WriteLine($"Waiting for redis: {ex.Message}");
                     Thread.Sleep(1000);
                 }
             }
         }
-
-        private static string GetIp(string hostname)
-            => Dns.GetHostEntry(hostname)
-                .AddressList
-                .First(a => a.AddressFamily == AddressFamily.InterNetwork)
-                .ToString();
 
         // Class 22 (data exception) and 23 (integrity violation): the vote itself is bad
         private static bool IsBadData(PostgresException ex)
