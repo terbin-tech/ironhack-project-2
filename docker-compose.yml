@@ -1,10 +1,8 @@
-# Ironhack note - This file is for running in docker compose with prebuilt images
-# Use these if you're stuck, or if you want to start slowly migrating from external images into your own.
+# This file builds the three apps (vote, result, worker) from source.
 
 services:
   vote:
-    image: pokfinner/vote:latest
- #  build: ./vote
+    build: ./vote
     depends_on:
       redis:
         condition: service_healthy 
@@ -16,8 +14,7 @@ services:
       - back-tier
 
   result:
-    image: pokfinner/result:latest
- #  build: ./result
+    build: ./result
     depends_on:
       db:
         condition: service_healthy 
@@ -29,8 +26,7 @@ services:
       - back-tier
 
   worker:
- #  build: ./worker
-    image: pokfinner/worker:latest
+    build: ./worker
     depends_on:
       redis:
         condition: service_healthy 
