@@ -14,6 +14,7 @@ if voting_mode not in ('every-click', 'one-per-voter'):
     raise ValueError(f"VOTING_MODE must be 'every-click' or 'one-per-voter', got '{voting_mode}'")
 redis_host = os.getenv('REDIS_HOST', 'redis')  # Default to 'redis' for compatibility
 redis_port = int(os.getenv('REDIS_PORT', 6379))  # Default Redis port is 6379
+redis_tls = os.getenv('REDIS_TLS', '').lower() == 'true'  # true: TLS, verified against the system CA store
 hostname = socket.gethostname()
 
 # Serve static files under /vote, so an Ingress that routes only /vote to this app still reaches them
@@ -25,7 +26,7 @@ app.logger.setLevel(logging.INFO)
 
 def get_redis():
     if not hasattr(g, 'redis'):
-        g.redis = Redis(host=redis_host, port=redis_port, db=0, socket_timeout=5)
+        g.redis = Redis(host=redis_host, port=redis_port, db=0, socket_timeout=5, ssl=redis_tls)
     return g.redis
 
 @app.route("/", methods=['POST','GET'])
