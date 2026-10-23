@@ -14,8 +14,8 @@ namespace Worker
         private const int MaxStrikes = 3;
         private const long HeartbeatIntervalMs = 5000;
 
-        // Starts one interval back so the first Heartbeat call writes
-        private static long lastHeartbeat = Environment.TickCount64 - HeartbeatIntervalMs;
+        // Null until the first write, so the first Heartbeat call always writes
+        private static long? lastHeartbeat;
 
         public static int Main(string[] args)
         {
@@ -279,7 +279,7 @@ namespace Worker
         private static void Heartbeat()
         {
             var now = Environment.TickCount64;
-            if (now - lastHeartbeat < HeartbeatIntervalMs)
+            if (lastHeartbeat is long last && now - last < HeartbeatIntervalMs)
             {
                 return;
             }
