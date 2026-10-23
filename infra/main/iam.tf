@@ -6,8 +6,9 @@ locals {
     "aaaa-martin.diogo.world",
   ]
 
-  # Subject of the fork's main branch. The owner and repository IDs keep the
-  # trust tied to this repository if the fork is renamed or recreated.
+  # Subject of the fork's main branch. The owner and repository IDs stop a
+  # repository recreated under the same name from matching; a rename changes
+  # the subject, so this value would then need updating.
   github_subject = "repo:terbin-tech@342395647/ironhack-project-2@1431057146:ref:refs/heads/main"
 }
 
