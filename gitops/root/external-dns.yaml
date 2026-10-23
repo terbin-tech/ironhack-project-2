@@ -28,7 +28,6 @@ spec:
         extraArgs:
           - --aws-zone-match-parent
           - --zone-id-filter=Z06626683QXS56B0ODY18
-          - --dry-run
         serviceAccount:
           name: external-dns
         env:
