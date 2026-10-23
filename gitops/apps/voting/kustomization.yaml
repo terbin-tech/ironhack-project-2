@@ -5,6 +5,8 @@ resources:
   - result.yaml
   - worker.yaml
   - routes.yaml
+  - vpc-cni-config.yaml
+  - network-policies.yaml
 images:
   - name: vote
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-vote

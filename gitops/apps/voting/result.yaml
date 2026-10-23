@@ -63,16 +63,28 @@ spec:
             httpGet:
               path: /result/
               port: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
           volumeMounts:
+            - name: tmp
+              mountPath: /tmp
             - name: db-credentials
               mountPath: /mnt/secrets-store
               readOnly: true
       volumes:
+        - name: tmp
+          emptyDir: {}
         - name: db-credentials
           csi:
             driver: secrets-store.csi.k8s.io
@@ -94,3 +106,14 @@ spec:
   ports:
     - port: 80
       targetPort: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: result
+  namespace: voting
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: result
