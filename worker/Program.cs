@@ -12,6 +12,10 @@ namespace Worker
     public class Program
     {
         private const int MaxStrikes = 3;
+        private const long HeartbeatIntervalMs = 5000;
+
+        // Starts one interval back so the first Heartbeat call writes
+        private static long lastHeartbeat = Environment.TickCount64 - HeartbeatIntervalMs;
 
         public static int Main(string[] args)
         {
@@ -54,6 +58,8 @@ namespace Worker
                 var definition = new { vote = "", voter_id = "" };
                 while (true)
                 {
+                    Heartbeat();
+
                     // Slow down to prevent CPU spike, only query each 100ms
                     Thread.Sleep(100);
 
@@ -215,6 +221,7 @@ namespace Worker
 
             while (true)
             {
+                Heartbeat();
                 try
                 {
                     connection = new NpgsqlConnection(BuildPgConnectionString(dbHost, dbName));
@@ -252,6 +259,7 @@ namespace Worker
         {
             while (true)
             {
+                Heartbeat();
                 try
                 {
                     Console.Error.WriteLine("Connecting to redis");
@@ -262,6 +270,27 @@ namespace Worker
                     Console.Error.WriteLine($"Waiting for redis: {ex.Message}");
                     Thread.Sleep(1000);
                 }
+            }
+        }
+
+        // Touches the file the container probes check. A failed write must not stop vote
+        // processing (the probe then restarts the pod), so the failure is only logged, and
+        // the timer advances anyway so a broken write is retried every interval, not on every loop.
+        private static void Heartbeat()
+        {
+            var now = Environment.TickCount64;
+            if (now - lastHeartbeat < HeartbeatIntervalMs)
+            {
+                return;
+            }
+            lastHeartbeat = now;
+            try
+            {
+                File.WriteAllBytes("/tmp/heartbeat", Array.Empty<byte>());
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Heartbeat write failed: {ex.GetType().Name}: {ex.Message}");
             }
         }
 

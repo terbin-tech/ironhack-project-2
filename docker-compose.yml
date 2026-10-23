@@ -35,6 +35,10 @@ services:
     environment:
       VOTING_MODE: ${VOTING_MODE:-every-click}
       DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in a .env file next to docker-compose.yml}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "find /tmp/heartbeat -newermt '-30 seconds' | grep -q ."]
+      interval: "10s"
+      retries: 3
     networks:
       - back-tier
 
