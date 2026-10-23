@@ -18,6 +18,12 @@ RUN npm ci && \
 
 COPY . .
 
+# RDS CA bundle for TLS to Postgres (PG_SSL_CA). --chmod because ADD from a URL
+# writes mode 600; the file sits directly in /usr/local/share because a
+# directory BuildKit creates would get the same mode and the non-root user
+# could not enter it.
+ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/rds-global-bundle.pem
+
 # Set default environment variables for both the application and PostgreSQL connection
 ENV PORT=80 \
     PG_HOST=db \

@@ -1,4 +1,5 @@
 var express = require('express'),
+    fs = require('fs'),
     { Pool } = require('pg'),
     cookieParser = require('cookie-parser'),
     path = require('path'),
@@ -36,15 +37,35 @@ resultNamespace.on('connection', function (socket) {
 // --- Example PostgreSQL logic (adjust as needed) ---
 var pgHost = process.env.PG_HOST || 'db';
 var pgPort = process.env.PG_PORT || 5432;
-var pgUser = process.env.PG_USER || 'postgres';
-var pgPassword = process.env.PG_PASSWORD || 'postgres';
 var pgDatabase = process.env.PG_DATABASE || 'postgres';
 
-var connectionString = `postgresql://${pgUser}:${pgPassword}@${pgHost}:${pgPort}/${pgDatabase}`;
+// The user comes from a file when PG_USER_FILE is set (read once, so it does
+// not rotate), else from PG_USER.
+var pgUser = process.env.PG_USER_FILE
+  ? fs.readFileSync(process.env.PG_USER_FILE, 'utf8').trim()
+  : process.env.PG_USER || 'postgres';
+
+// node-postgres calls a password function for every new connection, so a
+// rotated password file is picked up without a restart.
+var pgPassword = process.env.PG_PASSWORD_FILE
+  ? function () { return fs.readFileSync(process.env.PG_PASSWORD_FILE, 'utf8').trim(); }
+  : process.env.PG_PASSWORD || 'postgres';
+
+// TLS is on only when PG_SSL_CA names a CA bundle to verify the server with.
+var pgSsl = process.env.PG_SSL_CA
+  ? { ca: fs.readFileSync(process.env.PG_SSL_CA, 'utf8') }
+  : undefined;
+
 console.log(`Connecting to db: host=${pgHost} port=${pgPort} user=${pgUser} database=${pgDatabase}`);
 
-var { Pool } = require('pg');
-var pool = new Pool({ connectionString: connectionString });
+var pool = new Pool({
+  host: pgHost,
+  port: pgPort,
+  user: pgUser,
+  password: pgPassword,
+  database: pgDatabase,
+  ssl: pgSsl
+});
 
 // An idle client whose connection drops emits 'error' on the pool; with no
 // listener, Node treats it as uncaught and ends the process.
