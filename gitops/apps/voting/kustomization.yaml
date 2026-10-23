@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - vote.yaml
+  - result.yaml
+  - worker.yaml
+  - routes.yaml
+images:
+  - name: vote
+    newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-vote
+  - name: result
+    newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-result
+  - name: worker
+    newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-worker
