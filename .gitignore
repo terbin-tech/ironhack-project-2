@@ -24,3 +24,7 @@ venv/
 crash.log
 *.tfvars
 *.tfvars.json
+
+# Saved Terraform plans and local environment files
+tfplan
+.env
