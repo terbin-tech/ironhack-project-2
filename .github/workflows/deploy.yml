@@ -1,0 +1,144 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - vote/**
+      - result/**
+      - worker/**
+  workflow_dispatch:
+
+permissions: {}
+
+# queue: max keeps every pending run instead of dropping all but the newest,
+# so each push gets its own images and tag commit. cancel-in-progress cannot
+# be combined with it.
+concurrency:
+  group: deploy-main
+  queue: max
+
+env:
+  AWS_REGION: us-east-1
+  ROLE_ARN: arn:aws:iam::686699774218:role/martin-project-2-github-actions
+  REGISTRY: 686699774218.dkr.ecr.us-east-1.amazonaws.com
+  KUSTOMIZATION: gitops/apps/voting/kustomization.yaml
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      services: ${{ steps.diff.outputs.services }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          all='["vote","result","worker"]'
+          if [ "$EVENT_NAME" = workflow_dispatch ] \
+            || [ "$BEFORE" = 0000000000000000000000000000000000000000 ] \
+            || ! files=$(git diff --name-only "$BEFORE" "$SHA"); then
+            services=$all
+          else
+            services=$(jq -cn --arg files "$files" --argjson all "$all" \
+              '$all | map(select(. as $s | $files | split("\n") | any(startswith($s + "/"))))')
+          fi
+          echo "services=$services" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - name: Build and push unless the tag exists
+        env:
+          SERVICE: ${{ matrix.service }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if aws ecr describe-images --repository-name "martin-$SERVICE" \
+            --image-ids "imageTag=$SHA" > /dev/null 2>&1; then
+            echo "martin-$SERVICE:$SHA already exists, skipping the build"
+            exit 0
+          fi
+          docker buildx build --platform linux/amd64 \
+            -t "$REGISTRY/martin-$SERVICE:$SHA" --push "./$SERVICE"
+
+  record-tags:
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Record the new tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SERVICES: ${{ needs.changes.outputs.services }}
+          SHA: ${{ github.sha }}
+          QUERY: |
+            mutation($input: CreateCommitOnBranchInput!) {
+              createCommitOnBranch(input: $input) { commit { oid url } }
+            }
+        run: |
+          set -euo pipefail
+          headline="ci: deploy $(jq -r 'join(", ")' <<< "$SERVICES") at ${SHA::7}"
+          original="$RUNNER_TEMP/original.yaml"
+          updated="$RUNNER_TEMP/kustomization.yaml"
+          for attempt in 1 2 3 4 5; do
+            head=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
+            gh api -H 'Accept: application/vnd.github.raw+json' \
+              "repos/$REPO/contents/$KUSTOMIZATION?ref=$head" > "$original"
+            cp "$original" "$updated"
+            for service in $(jq -r '.[]' <<< "$SERVICES"); do
+              SERVICE=$service yq -i \
+                '(.images[] | select(.name == strenv(SERVICE))).newTag = strenv(SHA)' "$updated"
+            done
+            if cmp -s "$original" "$updated"; then
+              echo "$KUSTOMIZATION already has these tags at $head, nothing to commit"
+              exit 0
+            fi
+            body=$(jq -n --arg query "$QUERY" --arg repo "$REPO" --arg head "$head" \
+              --arg headline "$headline" --arg path "$KUSTOMIZATION" \
+              --arg contents "$(base64 -w0 "$updated")" \
+              '{query: $query, variables: {input: {
+                branch: {repositoryNameWithOwner: $repo, branchName: "main"},
+                expectedHeadOid: $head,
+                message: {headline: $headline},
+                fileChanges: {additions: [{path: $path, contents: $contents}]}
+              }}}')
+            if out=$(gh api graphql --input - <<< "$body" 2>&1); then
+              echo "$out"
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ] && grep -qE 'STALE_DATA|Expected branch to point to' <<< "$out"; then
+              echo "main moved past $head, retrying ($attempt of 5)"
+              continue
+            fi
+            echo "$out" >&2
+            exit 1
+          done
