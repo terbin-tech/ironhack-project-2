@@ -8,6 +8,8 @@ spec:
   infrastructure:
     annotations:
       service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+      # Both NGINX replicas can land in one zone; cross-zone keeps the other zone's address working.
+      service.beta.kubernetes.io/aws-load-balancer-attributes: load_balancing.cross_zone.enabled=true
   listeners:
     - name: http
       port: 80
