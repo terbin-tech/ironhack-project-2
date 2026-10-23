@@ -7,7 +7,7 @@ spec:
   parentRefs:
     - name: public
       namespace: gateway
-      sectionName: http
+      sectionName: https
   hostnames:
     - martin.diogo.world
   rules:
@@ -28,7 +28,7 @@ spec:
   parentRefs:
     - name: public
       namespace: gateway
-      sectionName: http
+      sectionName: https
   hostnames:
     - martin.diogo.world
   rules:
