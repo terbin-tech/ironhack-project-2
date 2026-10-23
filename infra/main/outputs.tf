@@ -61,3 +61,11 @@ output "valkey_primary_endpoint" {
 output "valkey_port" {
   value = aws_elasticache_replication_group.this.port
 }
+
+output "ecr_repository_urls" {
+  value = { for name, repository in aws_ecr_repository.this : name => repository.repository_url }
+}
+
+output "github_actions_role_arn" {
+  value = aws_iam_role.github_actions.arn
+}
