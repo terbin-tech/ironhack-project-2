@@ -28,6 +28,17 @@ spec:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
+      # One replica per zone; minDomains keeps a pod pending until Auto Mode adds a node in the empty zone.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          minDomains: 2
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: result
+          matchLabelKeys:
+            - pod-template-hash
       containers:
         - name: result
           image: result

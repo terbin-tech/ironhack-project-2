@@ -262,7 +262,7 @@ The live update was also checked in a browser: with two windows open, a vote sho
 
 ## How "scalable" is met
 
-EKS Auto Mode adds and removes nodes as pods need them ([Auto Mode](https://docs.aws.amazon.com/eks/latest/userguide/automode.html)); after the apps were deployed, Auto Mode had started one `c6a.large` node (checked before the resource requests and limits were added). Replica counts are fixed: vote and result run two replicas each with a PodDisruptionBudget, NGINX runs two, and the worker runs one. There is no horizontal pod autoscaling; it is out of scope, as are an observability stack and a service mesh.
+EKS Auto Mode adds and removes nodes as pods need them ([Auto Mode](https://docs.aws.amazon.com/eks/latest/userguide/automode.html)); after the apps were deployed, Auto Mode had started one `c6a.large` node (checked before the resource requests and limits were added). Replica counts are fixed: vote and result run two replicas each with a PodDisruptionBudget, NGINX runs two, and the worker runs one. vote, result and NGINX each place one replica per availability zone with a [topology spread constraint](https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/) (`DoNotSchedule`, `minDomains: 2`), so Auto Mode runs a node in each zone and a zone outage leaves one replica of each serving. There is no horizontal pod autoscaling; it is out of scope, as are an observability stack and a service mesh.
 
 ## What Argo CD does not reconcile
 
