@@ -35,10 +35,16 @@ resource "aws_db_instance" "this" {
   username                    = "votingadmin"
   manage_master_user_password = true
 
+  # Daily automated backups, kept 7 days; teardown deletes them with the instance
+  backup_retention_period = 7
+
   deletion_protection        = false
   skip_final_snapshot        = true
   delete_automated_backups   = true
   auto_minor_version_upgrade = false
+
+  # Apply reviewed changes at apply time, not in the next weekly maintenance window
+  apply_immediately = true
 }
 
 resource "aws_elasticache_subnet_group" "this" {
@@ -70,6 +76,9 @@ resource "aws_elasticache_replication_group" "this" {
   num_cache_clusters = 2
   port               = 6379
   cluster_mode       = "disabled"
+
+  # Daily snapshots, kept 7 days; teardown deletes them with the group
+  snapshot_retention_limit = 7
 
   automatic_failover_enabled = true
   multi_az_enabled           = true
