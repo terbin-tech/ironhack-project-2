@@ -49,7 +49,7 @@ flowchart TB
       addons["add-ons: NGF control plane, cert-manager, ExternalDNS, Secrets Store CSI driver + ASCP"]
       vote["voting: vote x2"]
       result["voting: result x2"]
-      worker["voting: worker x1"]
+      worker["voting: worker x2"]
     end
     valkey[("ElastiCache for Valkey, 2 nodes")]
     rds[("RDS for PostgreSQL 18, Multi-AZ")]
@@ -209,7 +209,7 @@ How the brief's validation steps map to this design. There is no Ingress, an NLB
 
 | Brief | Here | Command or check |
 |---|---|---|
-| `kubectl get deployments`, `kubectl get pods` | The three Deployments and five pods in `voting` | `kubectl get deploy,pods -n voting` |
+| `kubectl get deployments`, `kubectl get pods` | The three Deployments and six pods in `voting` | `kubectl get deploy,pods -n voting` |
 | `kubectl get ingress` showing an external IP | The Gateway; its ADDRESS is the NLB's DNS name | `kubectl get gateway -n gateway` and `kubectl get httproute -n voting` |
 | `http://<INGRESS_IP>/vote` | The vote page over HTTPS | <https://martin.diogo.world/> (also `/vote`) |
 | `http://<INGRESS_IP>/result` | The result page over HTTPS, updating live | <https://martin.diogo.world/result/> |
@@ -249,7 +249,7 @@ The live update was also checked in a browser: with two windows open, a vote sho
 
 - **Worker health checks.** The worker listens on no port, so it writes a heartbeat file (`/tmp/heartbeat`, at most every 5 seconds) from its main loop and from its two retry loops, and its readiness and liveness probes are exec checks that the file is less than 30 seconds old ([exec probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)). Writing from the retry loops means a database or Valkey outage does not restart the pod; the probe catches only a worker that stopped making progress. Compose uses the same check. No official source names a standard for workers without a port, so this follows the documented exec pattern rather than a named best practice.
 - **Worker Postgres timeouts.** The worker's connection uses `Timeout = 5`, `CommandTimeout = 10` and GSS encryption off, so a hung database cannot block it long enough to fail the probe.
-- **Worker `Recreate` strategy.** One worker keeps the `votes` list processed in order. The default rolling update briefly runs two workers, so the worker Deployment uses `strategy.type: Recreate`. Recreate keeps rollouts to one worker, while a node drain or eviction can still briefly run two, because a replacement pod starts while the old one is still terminating ([Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)).
+- **Two workers.** The worker takes each vote off the `votes` list with a single atomic pop and stores it as a new row (the default `every-click` mode), so two workers never take the same vote and the order they store in does not change the counts. They run one per zone, like vote and result, with the default rolling update and a PodDisruptionBudget, so losing a zone leaves one worker processing votes. A worker that stops after taking a vote and before storing it loses that vote; a reliable queue that moves each vote to a processing list until it is stored ([Valkey: reliable queue](https://valkey.io/commands/rpoplpush/)) is not built.
 - **Valkey certificate revocation checking off on the worker.** The worker's Valkey connection sets `checkCertificateRevocation=false`. Its Redis client checks revocation online by default, and the network policies allow only DNS, 6379 and 5432 out, so that check could not reach the certificate authority. The certificate chain and the hostname are still verified.
 - **result reads the database username once and the password per connection.** node-postgres takes the user only as a string and the password as a function; RDS rotation changes only the password, so the username never goes stale.
 - **The Node 24 bump landed at the pipeline milestone** (from `node:18-slim` to `node:24-slim`), as the push-triggered deploy test: a real one-service change instead of an invented one.
@@ -262,7 +262,7 @@ The live update was also checked in a browser: with two windows open, a vote sho
 
 ## How "scalable" is met
 
-EKS Auto Mode adds and removes nodes as pods need them ([Auto Mode](https://docs.aws.amazon.com/eks/latest/userguide/automode.html)); after the apps were deployed, Auto Mode had started one `c6a.large` node (checked before the resource requests and limits were added). Replica counts are fixed: vote and result run two replicas each with a PodDisruptionBudget, NGINX runs two, and the worker runs one. vote, result and NGINX each place one replica per availability zone with a [topology spread constraint](https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/) (`DoNotSchedule`, `minDomains: 2`), so Auto Mode runs a node in each zone and a zone outage leaves one replica of each serving. There is no horizontal pod autoscaling; it is out of scope, as are an observability stack and a service mesh.
+EKS Auto Mode adds and removes nodes as pods need them ([Auto Mode](https://docs.aws.amazon.com/eks/latest/userguide/automode.html)); after the apps were deployed, Auto Mode had started one `c6a.large` node (checked before the resource requests and limits were added). Replica counts are fixed: vote and result run two replicas each with a PodDisruptionBudget, NGINX runs two, and the worker runs two. vote, result, the worker and NGINX each place one replica per availability zone with a [topology spread constraint](https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/) (`DoNotSchedule`, `minDomains: 2`), so Auto Mode runs a node in each zone and a zone outage leaves one replica of each serving. There is no horizontal pod autoscaling; it is out of scope, as are an observability stack and a service mesh.
 
 ## What Argo CD does not reconcile
 
