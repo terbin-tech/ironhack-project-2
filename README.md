@@ -80,7 +80,7 @@ The setup has three layers:
 
 1. **Terraform** (`infra/`), applied after its plan is reviewed:
    - `infra/bootstrap`: the S3 bucket that holds the other roots' state.
-   - `infra/main`: the VPC (two availability zones, one NAT gateway), the EKS Auto Mode cluster `martin-project-2` (Kubernetes 1.37), the Argo CD capability and its IAM role, the Secrets Store CSI driver add-on (ASCP), RDS, Valkey, the ECR repositories, the IAM roles and the Pod Identity associations.
+   - `infra/main`: the VPC (two availability zones, one NAT gateway in each), the EKS Auto Mode cluster `martin-project-2` (Kubernetes 1.37), the Argo CD capability and its IAM role, the Secrets Store CSI driver add-on (ASCP), RDS, Valkey, the ECR repositories, the IAM roles and the Pod Identity associations.
    - `infra/gitops-bridge`: the few objects Terraform has to fill in before Argo CD can start (the [GitOps Bridge](https://github.com/gitops-bridge-dev/gitops-bridge) pattern): the Argo CD cluster Secret, `argocd-cm`, the `project-2` AppProject, the root Application, the `voting` namespace with its Pod Security labels, the `voting-config` ConfigMap (database and Valkey endpoints) and the `voting-db` SecretProviderClass.
 2. **GitOps, platform** (`gitops/root/`, an [app of apps](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/)): the Gateway API CRDs, NGINX Gateway Fabric, cert-manager and ExternalDNS, each pinned to an exact version, and the `gateway` Application (the Gateway, the HTTP to HTTPS redirect and the ClusterIssuers), all ordered by sync waves.
 3. **GitOps, apps** (`gitops/apps/voting/`, Kustomize): the Deployments, Services, ServiceAccounts, HTTPRoutes, NetworkPolicies, PodDisruptionBudgets and the ConfigMap that turns network policy on.
@@ -139,7 +139,7 @@ terraform -chdir=infra/main plan -out=tfplan
 terraform -chdir=infra/main apply tfplan
 ```
 
-The plan adds 61 resources. The apply took about 12 minutes; the Multi-AZ RDS instance is the slowest part.
+The plan adds 65 resources. The apply took about 12 minutes; the Multi-AZ RDS instance is the slowest part.
 
 ```bash
 aws eks update-kubeconfig --name martin-project-2 --region us-east-1
