@@ -58,13 +58,19 @@ var pgSsl = process.env.PG_SSL_CA
 
 console.log(`Connecting to db: host=${pgHost} port=${pgPort} user=${pgUser} database=${pgDatabase}`);
 
+// node-postgres waits forever by default. A database failover can leave a
+// pooled connection open with nothing behind it, and a query on it would then
+// never return, which stops the polling below. With these timeouts the query
+// fails instead, the pool drops that client and the next poll reconnects.
 var pool = new Pool({
   host: pgHost,
   port: pgPort,
   user: pgUser,
   password: pgPassword,
   database: pgDatabase,
-  ssl: pgSsl
+  ssl: pgSsl,
+  connectionTimeoutMillis: 5000,
+  query_timeout: 5000
 });
 
 // An idle client whose connection drops emits 'error' on the pool; with no
