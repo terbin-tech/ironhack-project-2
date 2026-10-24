@@ -2,7 +2,7 @@
 
 # Voting app on Amazon EKS with GitOps
 
-This repository deploys the course's multi-stack voting app (vote in Python, result in Node.js, worker in .NET, a Redis-compatible queue and PostgreSQL) on **Amazon EKS Auto Mode**. Every AWS resource is declared in **Terraform**, and everything inside the cluster is synced from this Git repository by **Argo CD**, run by AWS as the [EKS capability for Argo CD](https://docs.aws.amazon.com/eks/latest/userguide/argocd.html).
+This repository deploys the course's multi-stack voting app (vote in Python, result in Node.js, worker in .NET, a Redis-compatible queue and PostgreSQL) on **Amazon EKS Auto Mode**. The AWS resources are declared in **Terraform** (EKS Auto Mode adds the nodes and the load balancer itself), and everything inside the cluster apart from a few hand-off objects is synced from this Git repository by **Argo CD**, run by AWS as the [EKS capability for Argo CD](https://docs.aws.amazon.com/eks/latest/userguide/argocd.html).
 
 - Vote: <https://martin.diogo.world/>
 - Result: <https://martin.diogo.world/result/>
@@ -183,7 +183,7 @@ git pull --rebase
 1. You push a change under `vote/`, `result/` or `worker/` to `main`.
 2. `deploy.yml` works out which services changed, logs in to AWS with GitHub's OIDC token (no stored AWS keys), builds each changed image for `linux/amd64` and pushes it to ECR tagged with the full commit SHA. If that tag already exists, it skips the build.
 3. Its last job sets the new `newTag` values in `gitops/apps/voting/kustomization.yaml` and commits them to `main` through GitHub's GraphQL `createCommitOnBranch`, so GitHub signs the commit.
-4. Argo CD sees the new commit on its next poll and rolls out the new image. Nothing outside AWS holds credentials to the cluster.
+4. Argo CD sees the new commit on its next poll and rolls out the new image. The pipeline never connects to the cluster and holds no credentials for it.
 
 `ci.yml` runs on every push and pull request except the deploy workflow's own tag commits: they are pushed with the `GITHUB_TOKEN`, and GitHub starts no workflow run from events that token causes ([triggering a workflow from a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)). It runs `terraform fmt` and `validate` for each root, `kubectl kustomize` of the apps, and hadolint on the three Dockerfiles.
 
@@ -231,7 +231,7 @@ The live update was also checked in a browser: with two windows open, a vote sho
 | Brief says | This repo | Why, with source |
 |---|---|---|
 | Install the NGINX Ingress Controller with Helm and use an `Ingress` with the `kubernetes.io/ingress.class: "nginx"` annotation | NGINX Gateway Fabric with the Gateway API (`GatewayClass`, `Gateway`, `HTTPRoute`), still NGINX and still a Helm chart | ingress-nginx is retired and its repository archived, and Kubernetes recommends Gateway API: [retirement post](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/), [Ingress controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) (the Ingress API "has been frozen"), [ingress-nginx](https://github.com/kubernetes/ingress-nginx). The annotation itself was replaced by `spec.ingressClassName` long ago. |
-| Deploy Redis and Postgres "to the cluster (as Deployments)" | Amazon ElastiCache for Valkey (Multi-AZ replication group) and Amazon RDS for PostgreSQL Multi-AZ, created by Terraform | AWS runs backups, patching and cross-zone failover. |
+| Deploy Redis and Postgres "to the cluster (as Deployments)" | Amazon ElastiCache for Valkey (Multi-AZ replication group) and Amazon RDS for PostgreSQL Multi-AZ, created by Terraform | AWS runs the cross-zone failover, daily backups (kept 7 days on both) and maintenance. The PostgreSQL version is pinned, so engine upgrades are a deliberate change. |
 | vote, result and worker each with a Deployment and a Service | vote and result have Services; the worker has none | The worker listens on no port, so a Service would select nothing useful. |
 | GitHub Actions deploys with `kubectl apply -f K8s/` | GitHub Actions builds, pushes and records the image tag in Git; Argo CD pulls and applies | [OpenGitOps](https://opengitops.dev/) principle "Pulled Automatically"; no cluster credentials outside AWS, and the Kubernetes API stays restricted. |
 | `aws-actions/configure-aws-credentials@v1` with access key secrets | `configure-aws-credentials` v6.3.0 pinned to its commit SHA, with `role-to-assume` over OIDC | Short-lived credentials and no stored keys: [GitHub OIDC in AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws). |
@@ -278,7 +278,7 @@ For AWS resources, `terraform plan` showing no changes is the drift check.
 
 ## Security
 
-- **No long-lived credentials outside AWS.** The pipeline uses OIDC, people use their IAM identity, Argo CD runs under its capability role, and pods use [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html).
+- **No long-lived credentials in GitHub or the cluster.** The pipeline uses OIDC, Argo CD runs under its capability role, and pods use [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html). People use their own IAM identity; the IAM user named in `infra/main/cluster.tf` has cluster admin.
 - **Least privilege per actor.** The pipeline role can push only to the three repositories. ExternalDNS may change only `martin.diogo.world` and its two TXT ownership names in the one hosted zone. The pods' role reads only the one database secret. Both Pod Identity roles trust only their own namespace, service accounts and cluster. cert-manager needs no AWS permissions. Argo CD has cluster admin inside the cluster, bounded by the AppProject to this repo, the pinned upstream chart and CRD sources, and this cluster.
 - **Restricted API endpoint.** The public endpoint accepts only the CIDRs in `terraform.tfvars`, and the private endpoint is on ([cluster endpoint](https://docs.aws.amazon.com/eks/latest/userguide/cluster-endpoint.html)). So `kubectl`, and the teardown steps that use it (the Argo CD deletions and the `infra/gitops-bridge` destroy), work only from an address listed in that file. From any other address, first put the current one in `terraform.tfvars` and apply `infra/main`; the plan should show only the change to the endpoint's CIDRs.
 - **TLS** from the browser to the gateway, and from the apps to RDS and Valkey with certificate verification ([RDS SSL](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.SSL.html), [ElastiCache in-transit encryption](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/in-transit-encryption.html)). Inside the cluster, gateway to pods is plain HTTP.
@@ -303,7 +303,7 @@ Tested in this build: a forced rotation (`aws rds modify-db-instance --db-instan
 - **Re-run only the newest deploy run.** By the workflow's logic, re-running an older run would write its older tag back to `kustomization.yaml`, and Argo CD would then roll that service back.
 - **No image scan counts.** The account's registry uses Amazon Inspector enhanced scanning, which overrides the repositories' scan on push, and Inspector did not cover these ECR repositories, so no critical or high counts were available.
 - **vote's memory limit.** The vote image runs 4 gunicorn workers under a 256Mi memory limit; watch it for `OOMKilled` restarts.
-- **No Valkey AUTH.** Access to the cache is controlled by security group, network policy and TLS.
+- **No Valkey AUTH.** Only the cluster's nodes can reach the cache (its security group admits the cluster security group); in `voting` only vote and the worker may (network policies); other namespaces have no network policy. TLS encrypts the traffic but does not identify the client.
 
 ## Teardown
 
