@@ -10,10 +10,10 @@ resources:
 images:
   - name: vote
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-vote
-    newTag: e0763c49a3ac669f0854130c14fb23285877f88e
+    newTag: c27e017775979a9583829b9dc0893db838601061
   - name: result
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-result
-    newTag: 1bcf667261af511e2e8be8ec06237929971beec8
+    newTag: c27e017775979a9583829b9dc0893db838601061
   - name: worker
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-worker
     newTag: e0763c49a3ac669f0854130c14fb23285877f88e
