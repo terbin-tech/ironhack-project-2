@@ -10,7 +10,7 @@ spec:
   infrastructure:
     annotations:
       service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-      # Both NGINX replicas can land in one zone; cross-zone keeps the other zone's address working.
+      # Cross-zone lets each zone's NLB address reach the NGINX pods in both zones, so losing one NGINX pod leaves both addresses working.
       service.beta.kubernetes.io/aws-load-balancer-attributes: load_balancing.cross_zone.enabled=true
   listeners:
     - name: http

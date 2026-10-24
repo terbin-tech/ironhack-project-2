@@ -72,7 +72,7 @@ flowchart TB
   addons -->|"ExternalDNS writes the record"| r53
 ```
 
-**Request path:** browser, `martin.diogo.world` (a Route 53 alias), the NLB (TCP 80 and 443, IP targets), NGINX in the `gateway` namespace (TLS ends here, with the cert-manager certificate), an `HTTPRoute` in `voting`, the vote or result Service, the pods.
+**Request path:** browser, `martin.diogo.world` (a Route 53 alias), the NLB (TCP 80 and 443, IP targets), NGINX in the `gateway` namespace (TLS ends here, with the cert-manager certificate), an `HTTPRoute` in `voting`, the vote or result pods (NGINX Gateway Fabric sends to the pod IPs behind each Service, in either zone).
 
 **Vote path:** vote pushes the vote onto the `votes` list in Valkey; the worker pops it and writes it to the `votes` table in RDS; result polls RDS every second and pushes the scores to the browser over Socket.IO at `/result/socket.io`.
 
