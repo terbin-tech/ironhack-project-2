@@ -111,7 +111,7 @@ docker-compose.yml  builds the three apps from source
 - **GitHub OIDC provider:** the account must already have the IAM OIDC provider for `token.actions.githubusercontent.com`. It is shared with other projects in the account, so Terraform only reads it and never creates or changes it.
 - **`infra/main/terraform.tfvars`:** copy `infra/main/terraform.tfvars.example` and put your own public IP in `api_allowed_cidrs`. These are the CIDRs allowed to reach the cluster's public API endpoint. The file is git-ignored, so the author's IP is not in this public repository; the endpoint CIDRs are supplied at apply time, not stored in Git.
 
-This code is written for one account. Its account-specific values are the state bucket name (`infra/bootstrap/main.tf` and each root's backend block), the IAM user (`infra/main/cluster.tf`), the hosted zone and DNS names (`infra/main/iam.tf`, `gitops/root/external-dns.yaml`, `gitops/gateway/`, `gitops/apps/voting/routes.yaml`), the GitHub subject (`infra/main/iam.tf`) and the registry and role (`.github/workflows/deploy.yml`, `gitops/apps/voting/kustomization.yaml`).
+This code is written for one account. Its account-specific values are the state bucket name (`infra/bootstrap/main.tf`, each root's backend block and the remote state block in `infra/gitops-bridge/versions.tf`), the cluster name that `infra/gitops-bridge/versions.tf` repeats in its provider block, the repository URL of this fork (`infra/gitops-bridge/main.tf`, `gitops/root/gateway.yaml`, `gitops/root/voting.yaml`), the IAM user (`infra/main/cluster.tf`), the hosted zone and DNS names (`infra/main/iam.tf`, `gitops/root/external-dns.yaml`, `gitops/gateway/`, `gitops/apps/voting/routes.yaml`), the GitHub subject (`infra/main/iam.tf`) and the registry and role (`.github/workflows/deploy.yml`, `gitops/apps/voting/kustomization.yaml`).
 
 ## Deploy
 
@@ -158,7 +158,7 @@ terraform -chdir=infra/gitops-bridge apply tfplan
 kubectl get applications -n argocd -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status
 ```
 
-The plan adds 7 objects. The root Application then creates the platform Applications, and each one ends `Synced` and `Healthy`. It also creates `voting`, whose pods stay pending on missing images until step 4 has pushed them. The gateway's Service makes Auto Mode create the NLB; once the voting routes exist, ExternalDNS writes `martin.diogo.world` and cert-manager gets the certificate through the gateway.
+The plan adds 7 objects. The root Application then creates the platform Applications, and each one ends `Synced` and `Healthy`. It also creates `voting`, whose pods stay pending on missing images until step 4 has pushed them. The gateway's Service makes Auto Mode create the NLB; once the gateway's first route exists (the HTTP to HTTPS redirect in `gitops/gateway/`, before any voting route), ExternalDNS writes `martin.diogo.world` and cert-manager gets the certificate through the gateway.
 
 The Argo CD UI address comes from Terraform; sign in as the Identity Center user:
 
@@ -185,7 +185,7 @@ git pull --rebase
 3. Its last job sets the new `newTag` values in `gitops/apps/voting/kustomization.yaml` and commits them to `main` through GitHub's GraphQL `createCommitOnBranch`, so GitHub signs the commit.
 4. Argo CD sees the new commit on its next poll and rolls out the new image. Nothing outside AWS holds credentials to the cluster.
 
-`ci.yml` runs on every push and pull request: `terraform fmt` and `validate` for each root, `kubectl kustomize` of the apps, and hadolint on the three Dockerfiles.
+`ci.yml` runs on every push and pull request except the deploy workflow's own tag commits: they are pushed with the `GITHUB_TOKEN`, and GitHub starts no workflow run from events that token causes ([triggering a workflow from a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)). It runs `terraform fmt` and `validate` for each root, `kubectl kustomize` of the apps, and hadolint on the three Dockerfiles.
 
 **Pull before you push.** Every deploy adds a tag commit to `main`, so run `git pull --rebase` before pushing. The `main` ruleset blocks force pushes.
 
@@ -237,7 +237,7 @@ The live update was also checked in a browser: with two windows open, a vote sho
 | `aws-actions/configure-aws-credentials@v1` with access key secrets | `configure-aws-credentials` v6.3.0 pinned to its commit SHA, with `role-to-assume` over OIDC | Short-lived credentials and no stored keys: [GitHub OIDC in AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws). |
 | `eksctl utils write-kubeconfig` and `kubectl` in the pipeline | No kubeconfig in the pipeline; people use `aws eks update-kubeconfig` | Pull model, so the pipeline never touches the cluster. eksctl is not needed anywhere. |
 | Push images to "your container registry (e.g., Docker Hub)" | Amazon ECR, tags immutable, scan on push | The brief's "e.g." allows it: one AWS login for build and deploy, and no registry password in GitHub. |
-| Region `eu-west-3` and the cluster `romain-voting-app-cluster` | us-east-1, every name prefixed `martin-` | The class shares one AWS account, so every resource carries the owner's prefix and the tag `Owner = martin`. |
+| Region `eu-west-3` and the cluster `romain-voting-app-cluster` | us-east-1, every AWS resource Terraform creates prefixed `martin-` | The class shares one AWS account, so every AWS resource Terraform creates carries the owner's prefix and the tag `Owner = martin`. The load balancer, the nodes and their parts are created by EKS Auto Mode and named by it. |
 | Service names like `redis-service`, `vote-service`; manifests in `K8s/` | Plain Service names `vote` and `result`; the layout above | In-cluster callers still use Service names, and the apps reach RDS and Valkey by their AWS DNS names, never by IP. |
 | `kubectl create secret generic db-credentials --from-literal=...` | RDS generates and keeps the password in Secrets Manager; ASCP delivers it only to result and worker | No password is typed, logged or stored in Git, and only the result and worker pods can read the one secret: [EKS secrets](https://docs.aws.amazon.com/eks/latest/userguide/manage-secrets.html), [ASCP with Pod Identity](https://docs.aws.amazon.com/secretsmanager/latest/userguide/ascp-pod-identity-integration.html). |
 | Ingress add-on routes `/vote` and `/result` over plain HTTP | The same paths over HTTPS on `martin.diogo.world`; `/vote` is served through the `/` route; HTTP redirects to HTTPS | The brief's HTTPS add-on, done with [cert-manager and Gateway API](https://cert-manager.io/docs/usage/gateway/) using the [HTTP-01 challenge](https://cert-manager.io/docs/configuration/acme/http01/); the brief's Route 53 records are written by [ExternalDNS](https://kubernetes-sigs.github.io/external-dns/latest/docs/tutorials/aws/). |
@@ -280,7 +280,7 @@ For AWS resources, `terraform plan` showing no changes is the drift check.
 
 - **No long-lived credentials outside AWS.** The pipeline uses OIDC, people use their IAM identity, Argo CD runs under its capability role, and pods use [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html).
 - **Least privilege per actor.** The pipeline role can push only to the three repositories. ExternalDNS may change only `martin.diogo.world` and its two TXT ownership names in the one hosted zone. The pods' role reads only the one database secret. Both Pod Identity roles trust only their own namespace, service accounts and cluster. cert-manager needs no AWS permissions. Argo CD has cluster admin inside the cluster, bounded by the AppProject to this repo, the pinned upstream chart and CRD sources, and this cluster.
-- **Restricted API endpoint.** The public endpoint accepts only the CIDRs in `terraform.tfvars`, and the private endpoint is on ([cluster endpoint](https://docs.aws.amazon.com/eks/latest/userguide/cluster-endpoint.html)).
+- **Restricted API endpoint.** The public endpoint accepts only the CIDRs in `terraform.tfvars`, and the private endpoint is on ([cluster endpoint](https://docs.aws.amazon.com/eks/latest/userguide/cluster-endpoint.html)). So `kubectl`, and the teardown steps that use it (the Argo CD deletions and the `infra/gitops-bridge` destroy), work only from an address listed in that file. From any other address, first put the current one in `terraform.tfvars` and apply `infra/main`; the plan should show only the change to the endpoint's CIDRs.
 - **TLS** from the browser to the gateway, and from the apps to RDS and Valkey with certificate verification ([RDS SSL](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.SSL.html), [ElastiCache in-transit encryption](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/in-transit-encryption.html)). Inside the cluster, gateway to pods is plain HTTP.
 - **Encryption at rest** on RDS and Valkey; Kubernetes Secrets use EKS's default envelope encryption.
 - **Workload hardening** in `voting`: [Pod Security](https://kubernetes.io/docs/concepts/security/pod-security-standards/) `restricted`, non-root containers with all capabilities dropped and read-only root filesystems, resource requests and limits, and default-deny [network policies](https://docs.aws.amazon.com/eks/latest/userguide/auto-net-pol.html) with explicit allows (gateway to vote and result on 80; DNS; vote and worker to Valkey; worker and result to Postgres).
@@ -299,7 +299,7 @@ Tested in this build: a forced rotation (`aws rds modify-db-instance --db-instan
 
 ## Known gaps
 
-- **Argo CD polls Git instead of using a webhook.** The [EKS docs](https://docs.aws.amazon.com/eks/latest/userguide/argocd-considerations.html) give a 6-minute poll by default; in the one push-triggered run measured here, Argo CD picked up a tag commit about 13.5 minutes after it landed. A webhook would need its secret in the cluster outside Git, so polling stays.
+- **Argo CD polls Git instead of using a webhook.** The [EKS docs](https://docs.aws.amazon.com/eks/latest/userguide/argocd-considerations.html) give a 6-minute poll by default; in the one push-triggered run measured here, Argo CD picked up a tag commit about 13.5 minutes after it landed. For Argo CD to verify that a webhook payload came from GitHub, the same page has a shared secret stored in the `argocd-webhook-creds-secret` Secret in the cluster, outside Git, so polling stays.
 - **Re-run only the newest deploy run.** By the workflow's logic, re-running an older run would write its older tag back to `kustomization.yaml`, and Argo CD would then roll that service back.
 - **No image scan counts.** The account's registry uses Amazon Inspector enhanced scanning, which overrides the repositories' scan on push, and Inspector did not cover these ECR repositories, so no critical or high counts were available.
 - **vote's memory limit.** The vote image runs 4 gunicorn workers under a 256Mi memory limit; watch it for `OOMKilled` restarts.
@@ -362,7 +362,7 @@ Teardown works on the cluster and in Terraform; the manifests and tag commits st
    aws identitystore delete-user --identity-store-id <identity store ID> --user-id <user ID>
    ```
 
-7. Check that nothing remains. These print nothing:
+7. Check that nothing remains. Each prints an empty result, `{"ResourceTagMappingList": []}`:
 
    ```bash
    aws resourcegroupstaggingapi get-resources --tag-filters Key=Owner,Values=martin
@@ -370,6 +370,13 @@ Teardown works on the cluster and in Terraform; the manifests and tag commits st
    ```
 
    Also check, with `--include-managed-resources` and the cluster tag filter where they apply: EC2 instances, launch templates, network interfaces, volumes and security groups; the Auto Mode instance profile; RDS snapshots and automated backups; ElastiCache snapshots; the RDS-managed secret; the CloudWatch log group `/aws/eks/martin-project-2/`; IAM roles and policies starting `martin-`; the three Route 53 names; and the Identity Center applications.
+
+   If the Auto Mode instance profile is left, list it and delete it by its exact name:
+
+   ```bash
+   aws iam list-instance-profiles --query "InstanceProfiles[?contains(InstanceProfileName,'martin-project-2')].InstanceProfileName"
+   aws iam delete-instance-profile --instance-profile-name <name>
+   ```
 
 ## The app
 
