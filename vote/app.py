@@ -1,5 +1,7 @@
 from flask import Flask, render_template, request, make_response, g
 from redis import Redis
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 import os
 import socket
 import random
@@ -26,7 +28,12 @@ app.logger.setLevel(logging.INFO)
 
 def get_redis():
     if not hasattr(g, 'redis'):
-        g.redis = Redis(host=redis_host, port=redis_port, db=0, socket_timeout=5, ssl=redis_tls)
+        # Fail fast: one attempt of at most 2 seconds (the connect timeout follows
+        # socket_timeout). redis-py retries 10 times by default, so during a Valkey
+        # failover each vote would hold a gunicorn worker long enough to block the
+        # page loads and health checks the same workers serve.
+        g.redis = Redis(host=redis_host, port=redis_port, db=0, socket_timeout=2,
+                        retry=Retry(NoBackoff(), 0), ssl=redis_tls)
     return g.redis
 
 @app.route("/", methods=['POST','GET'])
