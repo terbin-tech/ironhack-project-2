@@ -173,6 +173,13 @@ data "aws_iam_policy_document" "external_dns_trust" {
       variable = "aws:RequestTag/eks-cluster-arn"
       values   = [module.eks.cluster_arn]
     }
+
+    # Confused-deputy protection, as on the voting roles
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceOrgId"
+      values   = ["$${aws:ResourceOrgId}"]
+    }
   }
 }
 

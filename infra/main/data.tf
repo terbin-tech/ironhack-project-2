@@ -89,7 +89,7 @@ resource "aws_elasticache_replication_group" "this" {
   security_group_ids = [aws_security_group.valkey.id]
 
   # Role-based access control: only the users in this group can connect
-  user_group_ids = [aws_elasticache_user_group.transition.id]
+  user_group_ids = [aws_elasticache_user_group.this.id]
 
   # Apply reviewed changes at apply time, not in the next weekly maintenance window
   apply_immediately = true
@@ -142,20 +142,19 @@ ephemeral "aws_secretsmanager_secret_version" "valkey" {
 resource "aws_elasticache_user" "valkey" {
   for_each = local.valkey_users
 
-  user_id   = "martin-project-2-${each.key}"
-  user_name = "martin-project-2-${each.key}"
-  # redis so the users can join the transitional group below
-  engine        = "redis"
+  user_id       = "martin-project-2-${each.key}"
+  user_name     = "martin-project-2-${each.key}"
+  engine        = "valkey"
   access_string = each.value
 
   passwords_wo         = jsondecode(ephemeral.aws_secretsmanager_secret_version.valkey[each.key].secret_string).password
   passwords_wo_version = aws_secretsmanager_secret_version.valkey[each.key].secret_string_wo_version
 }
 
-# Transitional: the built-in default user (no password) keeps the running apps
-# connected until they log in as their own users.
-resource "aws_elasticache_user_group" "transition" {
-  user_group_id = "martin-project-2-transition"
-  engine        = "redis"
-  user_ids      = concat(["default"], [for user in aws_elasticache_user.valkey : user.user_id])
+# A Valkey-engine group holds no usable default user, so only the apps' own
+# users can connect.
+resource "aws_elasticache_user_group" "this" {
+  user_group_id = "martin-project-2"
+  engine        = "valkey"
+  user_ids      = [for user in aws_elasticache_user.valkey : user.user_id]
 }
