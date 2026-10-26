@@ -99,9 +99,15 @@ jobs:
     needs: [changes, build]
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: write
     steps:
-      - name: Record the new tags
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ env.ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      # The digest goes next to the tag, so the pods run exactly the image that was pushed.
+      - name: Record the new tags and digests
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -116,15 +122,23 @@ jobs:
           headline="ci: deploy $(jq -r 'join(", ")' <<< "$SERVICES") at ${SHA::7}"
           original="$RUNNER_TEMP/original.yaml"
           updated="$RUNNER_TEMP/kustomization.yaml"
+          digests="$RUNNER_TEMP/digests"
+          for service in $(jq -r '.[]' <<< "$SERVICES"); do
+            digest=$(aws ecr describe-images --repository-name "martin-$service" \
+              --image-ids "imageTag=$SHA" --query 'imageDetails[0].imageDigest' --output text)
+            [[ $digest == sha256:* ]] || { echo "no digest for martin-$service:$SHA" >&2; exit 1; }
+            echo "$service $digest" >> "$digests"
+          done
           for attempt in 1 2 3 4 5; do
             head=$(gh api "repos/$REPO/git/ref/heads/main" --jq .object.sha)
             gh api -H 'Accept: application/vnd.github.raw+json' \
               "repos/$REPO/contents/$KUSTOMIZATION?ref=$head" > "$original"
             cp "$original" "$updated"
-            for service in $(jq -r '.[]' <<< "$SERVICES"); do
-              SERVICE=$service yq -i \
-                '(.images[] | select(.name == strenv(SERVICE))).newTag = strenv(SHA)' "$updated"
-            done
+            while read -r service digest; do
+              SERVICE=$service DIGEST=$digest yq -i \
+                '(.images[] | select(.name == strenv(SERVICE))) |= (.newTag = strenv(SHA) | .digest = strenv(DIGEST))' \
+                "$updated"
+            done < "$digests"
             if cmp -s "$original" "$updated"; then
               echo "$KUSTOMIZATION already has these tags at $head, nothing to commit"
               exit 0

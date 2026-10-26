@@ -177,13 +177,13 @@ gh run watch <run-id> -R terbin-tech/ironhack-project-2 --exit-status
 git pull --rebase
 ```
 
-`gh run list -R terbin-tech/ironhack-project-2 --workflow deploy.yml` shows the run ID. After the pull, `gitops/apps/voting/kustomization.yaml` carries the new commit SHA as `newTag` for each service, and Argo CD rolls the apps out.
+`gh run list -R terbin-tech/ironhack-project-2 --workflow deploy.yml` shows the run ID. After the pull, `gitops/apps/voting/kustomization.yaml` carries the new commit SHA as `newTag` and the image's digest as `digest` for each service, and Argo CD rolls the apps out.
 
 ## How a change reaches the cluster
 
 1. You push a change under `vote/`, `result/` or `worker/` to `main`.
 2. `deploy.yml` first runs `ci.yml` on the same commit and stops if any check fails. It then works out which services changed, logs in to AWS with GitHub's OIDC token (no stored AWS keys), builds each changed image for `linux/amd64` and pushes it to ECR tagged with the full commit SHA. If that tag already exists, it skips the build.
-3. Its last job sets the new `newTag` values in `gitops/apps/voting/kustomization.yaml` and commits them to `main` through GitHub's GraphQL `createCommitOnBranch`, so GitHub signs the commit.
+3. Its last job reads each new image's digest from ECR, sets the new `newTag` and `digest` values in `gitops/apps/voting/kustomization.yaml` (the pods then run `image:tag@digest`, as the [Kubernetes security checklist](https://kubernetes.io/docs/concepts/security/security-checklist/) asks) and commits them to `main` through GitHub's GraphQL `createCommitOnBranch`, so GitHub signs the commit.
 4. Argo CD sees the new commit on its next poll and rolls out the new image. The pipeline never connects to the cluster and holds no credentials for it.
 
 `ci.yml` runs on every push and pull request except the deploy workflow's own tag commits: they are pushed with the `GITHUB_TOKEN`, and GitHub starts no workflow run from events that token causes ([triggering a workflow from a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)). It runs `terraform fmt` and `validate` for each root, `kubectl kustomize` of the apps, hadolint on the three Dockerfiles, a unit test of the vote page (`tests/vote/`, pytest with Flask's test client), and an integration test (`tests/integration/`) that builds the three images from their folders, starts the Compose stack and checks the whole app: the vote page offers both options, a vote cast there is stored in Postgres by the worker, and result pushes the new count over Socket.IO. On pull requests it also runs GitHub's dependency review.
