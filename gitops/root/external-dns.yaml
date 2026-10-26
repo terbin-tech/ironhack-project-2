@@ -25,9 +25,17 @@ spec:
         txtOwnerId: martin-project-2
         domainFilters:
           - martin.diogo.world
+        # Only the site's routes, labelled in gitops/apps/voting and gitops/gateway
+        labelFilter: app.kubernetes.io/part-of=voting
+        # Reconcile on route changes too, not only every interval
+        triggerLoopOnEvent: true
         extraArgs:
           - --aws-zone-match-parent
           - --zone-id-filter=Z06626683QXS56B0ODY18
+          # An event on the route when its record cannot be created
+          - --events-emit=RecordError
+          # The hosted zone list changes rarely; fetch it once an hour
+          - --aws-zones-cache-duration=1h
         serviceAccount:
           name: external-dns
         env:
