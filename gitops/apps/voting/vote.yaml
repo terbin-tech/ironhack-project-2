@@ -59,6 +59,10 @@ spec:
                   key: REDIS_PORT
             - name: REDIS_TLS
               value: "true"
+            - name: REDIS_USERNAME_FILE
+              value: /mnt/valkey-credentials/username
+            - name: REDIS_PASSWORD_FILE
+              value: /mnt/valkey-credentials/password
           readinessProbe:
             httpGet:
               path: /
@@ -85,11 +89,20 @@ spec:
               mountPath: /tmp
             - name: home
               mountPath: /home/app
+            - name: valkey-credentials
+              mountPath: /mnt/valkey-credentials
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
         - name: home
           emptyDir: {}
+        - name: valkey-credentials
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: voting-valkey-vote
 ---
 apiVersion: v1
 kind: Service

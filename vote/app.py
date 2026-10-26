@@ -26,14 +26,29 @@ gunicorn_error_logger = logging.getLogger('gunicorn.error')
 app.logger.handlers.extend(gunicorn_error_logger.handlers)
 app.logger.setLevel(logging.INFO)
 
+def read_setting(name):
+    # A value from the file named by <name>_FILE when set (read per request, so a
+    # rotated secret is picked up), else from <name>; None when neither is set.
+    path = os.getenv(name + '_FILE')
+    if path:
+        with open(path) as f:
+            return f.read().strip()
+    return os.getenv(name)
+
 def get_redis():
     if not hasattr(g, 'redis'):
         # Fail fast: one attempt of at most 2 seconds (the connect timeout follows
         # socket_timeout). redis-py retries 10 times by default, so during a Valkey
         # failover each vote would hold a gunicorn worker long enough to block the
         # page loads and health checks the same workers serve.
+        # Without a username and password redis-py sends no AUTH (Compose's plain
+        # Redis). driver_info=None skips CLIENT SETINFO, which vote's Valkey user
+        # may not run.
         g.redis = Redis(host=redis_host, port=redis_port, db=0, socket_timeout=2,
-                        retry=Retry(NoBackoff(), 0), ssl=redis_tls)
+                        retry=Retry(NoBackoff(), 0), ssl=redis_tls,
+                        username=read_setting('REDIS_USERNAME'),
+                        password=read_setting('REDIS_PASSWORD'),
+                        driver_info=None)
     return g.redis
 
 @app.route("/", methods=['POST','GET'])

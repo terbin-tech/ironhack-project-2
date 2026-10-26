@@ -184,7 +184,7 @@ namespace Worker
 
         // A value from the file named by <name>_FILE when set (read now, so a rotated
         // secret is picked up), else from <name>, else the fallback.
-        private static string ReadSetting(string name, string fallback)
+        private static string? ReadSetting(string name, string? fallback)
         {
             var file = Environment.GetEnvironmentVariable(name + "_FILE");
             if (!string.IsNullOrEmpty(file))
@@ -263,7 +263,17 @@ namespace Worker
                 try
                 {
                     Console.Error.WriteLine("Connecting to redis");
-                    return ConnectionMultiplexer.Connect(configuration);
+                    // Built per attempt, so the user and password files are read again after a
+                    // failure. Set as properties, not in the string, because a generated password
+                    // may contain characters the configuration string treats as syntax.
+                    var options = ConfigurationOptions.Parse(configuration);
+                    options.User = ReadSetting("REDIS_USERNAME", null);
+                    options.Password = ReadSetting("REDIS_PASSWORD", null);
+                    // The worker's Valkey user may run only the commands the client needs to
+                    // connect and the list commands. The client's optional commands are turned
+                    // off here, as its docs ask, so it does not attempt them.
+                    options.CommandMap = CommandMap.Create(new HashSet<string> { "CLUSTER", "CONFIG", "GET", "SUBSCRIBE" }, available: false);
+                    return ConnectionMultiplexer.Connect(options);
                 }
                 catch (Exception ex) when (ex is RedisConnectionException || ex is SocketException || ex is InvalidOperationException)
                 {

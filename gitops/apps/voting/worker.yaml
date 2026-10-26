@@ -71,6 +71,10 @@ spec:
               value: /mnt/secrets-store/password
             - name: REDIS_TLS
               value: "true"
+            - name: REDIS_USERNAME_FILE
+              value: /mnt/valkey-credentials/username
+            - name: REDIS_PASSWORD_FILE
+              value: /mnt/valkey-credentials/password
             - name: DB_SSL_ROOT_CERT
               value: /usr/local/share/rds-global-bundle.pem
           readinessProbe:
@@ -108,6 +112,9 @@ spec:
             - name: db-credentials
               mountPath: /mnt/secrets-store
               readOnly: true
+            - name: valkey-credentials
+              mountPath: /mnt/valkey-credentials
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
@@ -117,6 +124,12 @@ spec:
             readOnly: true
             volumeAttributes:
               secretProviderClass: voting-db
+        - name: valkey-credentials
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes:
+              secretProviderClass: voting-valkey-worker
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
