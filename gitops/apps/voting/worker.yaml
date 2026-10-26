@@ -24,6 +24,8 @@ spec:
         app.kubernetes.io/part-of: voting
     spec:
       serviceAccountName: worker
+      # None of the apps calls the Kubernetes API, so no API token is mounted.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         seccompProfile:
