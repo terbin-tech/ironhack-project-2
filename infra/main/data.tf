@@ -49,6 +49,12 @@ resource "aws_db_instance" "this" {
 
   # Apply reviewed changes at apply time, not in the next weekly maintenance window
   apply_immediately = true
+
+  lifecycle {
+    # AWS applies minor upgrades itself; without this, the next plan after one
+    # would try to set the version back
+    ignore_changes = [engine_version]
+  }
 }
 
 # The groups RDS writes its exported logs to, created here so they carry the
