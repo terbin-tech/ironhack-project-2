@@ -140,6 +140,31 @@ resource "kubernetes_namespace_v1" "voting" {
   }
 }
 
+# Pod Security labels on the namespaces this root does not create, at the level their pods meet.
+# The Secrets Store CSI driver and the GuardDuty agent need hostPath volumes and host access.
+resource "kubernetes_labels" "pod_security" {
+  for_each = {
+    argocd              = "restricted"
+    default             = "restricted"
+    aws-secrets-manager = "privileged"
+    amazon-guardduty    = "privileged"
+  }
+
+  api_version = "v1"
+  kind        = "Namespace"
+
+  metadata {
+    name = each.key
+  }
+
+  labels = {
+    "pod-security.kubernetes.io/enforce"         = each.value
+    "pod-security.kubernetes.io/enforce-version" = "latest"
+    "pod-security.kubernetes.io/warn"            = each.value
+    "pod-security.kubernetes.io/audit"           = each.value
+  }
+}
+
 resource "kubernetes_config_map_v1" "voting_config" {
   metadata {
     name      = "voting-config"

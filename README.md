@@ -81,7 +81,7 @@ The setup has three layers:
 1. **Terraform** (`infra/`), applied after its plan is reviewed:
    - `infra/bootstrap`: the S3 bucket that holds the other roots' state.
    - `infra/main`: the VPC (two availability zones, one NAT gateway in each), the EKS Auto Mode cluster `martin-project-2` (Kubernetes 1.37), the Argo CD capability and its IAM role, the Secrets Store CSI driver add-on (ASCP), RDS, Valkey, the ECR repositories, the IAM roles and the Pod Identity associations.
-   - `infra/gitops-bridge`: the few objects Terraform has to fill in before Argo CD can start (the [GitOps Bridge](https://github.com/gitops-bridge-dev/gitops-bridge) pattern): the Argo CD cluster Secret, `argocd-cm`, the `project-2` AppProject, the root Application, the `voting` namespace with its Pod Security labels, the `voting-config` ConfigMap (database and Valkey endpoints) and the `voting-db` SecretProviderClass.
+   - `infra/gitops-bridge`: the few objects Terraform has to fill in before Argo CD can start (the [GitOps Bridge](https://github.com/gitops-bridge-dev/gitops-bridge) pattern): the Argo CD cluster Secret, `argocd-cm`, the `project-2` AppProject, the root Application, the `voting` namespace with its Pod Security labels, the Pod Security labels of the `argocd`, `default`, `aws-secrets-manager` and `amazon-guardduty` namespaces, the `voting-config` ConfigMap (database and Valkey endpoints) and the `voting-db` SecretProviderClass.
 2. **GitOps, platform** (`gitops/root/`, an [app of apps](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/)): the Gateway API CRDs, NGINX Gateway Fabric, cert-manager and ExternalDNS, each pinned to an exact version, and the `gateway` Application (the Gateway, the HTTP to HTTPS redirect and the ClusterIssuers), all ordered by sync waves.
 3. **GitOps, apps** (`gitops/apps/voting/`, Kustomize): the Deployments, Services, ServiceAccounts, HTTPRoutes, NetworkPolicies, PodDisruptionBudgets and the ConfigMap that turns network policy on.
 
@@ -93,7 +93,7 @@ Every Application has automated sync with prune and self heal, so a manual chang
 infra/
   bootstrap/        S3 state bucket (its own state stays local and git-ignored)
   main/             VPC, EKS Auto Mode, Argo CD capability, RDS, Valkey, ECR, IAM, Pod Identity, ASCP add-on
-  gitops-bridge/    cluster Secret, argocd-cm, AppProject, root Application, voting namespace, voting-config, voting-db
+  gitops-bridge/    cluster Secret, argocd-cm, AppProject, root Application, voting namespace, Pod Security labels, voting-config, voting-db
 gitops/
   root/             the Argo CD Applications the root Application watches
   gateway/          gateway namespace, Gateway, HTTPS redirect, ClusterIssuers
@@ -284,6 +284,7 @@ For AWS resources, `terraform plan` showing no changes is the drift check.
 - **TLS** from the browser to the gateway, and from the apps to RDS and Valkey with certificate verification ([RDS SSL](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.SSL.html), [ElastiCache in-transit encryption](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/in-transit-encryption.html)). Inside the cluster, gateway to pods is plain HTTP.
 - **Encryption at rest** on RDS and Valkey; Kubernetes Secrets use EKS's default envelope encryption.
 - **Workload hardening** in `voting`: [Pod Security](https://kubernetes.io/docs/concepts/security/pod-security-standards/) `restricted`, non-root containers with all capabilities dropped, read-only root filesystems and no Kubernetes API token mounted, resource requests and limits, and default-deny [network policies](https://docs.aws.amazon.com/eks/latest/userguide/auto-net-pol.html) with explicit allows (gateway to vote and result on 80; DNS; vote and worker to Valkey; worker and result to Postgres).
+- **Pod Security on the other namespaces.** `gateway`, `nginx-gateway`, `cert-manager`, `external-dns`, `argocd` and `default` enforce `restricted` too; `aws-secrets-manager` and `amazon-guardduty` are labelled `privileged`, because the Secrets Store CSI driver and the GuardDuty agent need host access. The Kubernetes system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) carry no label.
 - **Supply chain.** Images are tagged with the commit SHA and immutable in ECR. Every GitHub Action is pinned to a full commit SHA, and the repository requires it. Dependabot alerts and security updates are on, and `.github/dependabot.yml` asks for weekly version updates of the actions, the three apps' packages and their base images; a Dependabot pull request deploys only when merged. CodeQL default setup scans the code, and secret scanning scans the history.
 - The repository is public and holds no secret. Push access to `main` controls what runs in the cluster.
 
