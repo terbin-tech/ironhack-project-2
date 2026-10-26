@@ -3,6 +3,9 @@ kind: HTTPRoute
 metadata:
   name: vote
   namespace: voting
+  # ExternalDNS reads only routes with this label
+  labels:
+    app.kubernetes.io/part-of: voting
 spec:
   parentRefs:
     - name: public
@@ -24,6 +27,9 @@ kind: HTTPRoute
 metadata:
   name: result
   namespace: voting
+  # ExternalDNS reads only routes with this label
+  labels:
+    app.kubernetes.io/part-of: voting
 spec:
   parentRefs:
     - name: public
