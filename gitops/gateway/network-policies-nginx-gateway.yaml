@@ -1,0 +1,59 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: nginx-gateway
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: nginx-gateway
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.100.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-plane
+  namespace: nginx-gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nginx-gateway-fabric
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # The NGINX pods' agent connects to the control plane.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: gateway
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: public-nginx
+      ports:
+        - protocol: TCP
+          port: 8443
+  egress:
+    # Kubernetes API and product telemetry.
+    - ports:
+        - protocol: TCP
+          port: 443
