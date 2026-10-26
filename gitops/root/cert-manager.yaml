@@ -16,16 +16,106 @@ spec:
     targetRevision: v1.21.2
     helm:
       valuesObject:
+        # cert-manager's best-practice values (cert-manager.io/docs/installation/best-practice),
+        # except its PodDisruptionBudgets and chart NetworkPolicies: the network
+        # policies are in gitops/gateway/network-policies-cert-manager.yaml.
+        global:
+          priorityClassName: system-cluster-critical
+        replicaCount: 2
+        automountServiceAccountToken: false
+        serviceAccount:
+          automountServiceAccountToken: false
+        volumes:
+          - name: serviceaccount-token
+            projected:
+              defaultMode: 0444
+              sources:
+                - serviceAccountToken:
+                    expirationSeconds: 3607
+                    path: token
+                - configMap:
+                    name: kube-root-ca.crt
+                    items:
+                      - key: ca.crt
+                        path: ca.crt
+                - downwardAPI:
+                    items:
+                      - path: namespace
+                        fieldRef:
+                          apiVersion: v1
+                          fieldPath: metadata.namespace
+        volumeMounts:
+          - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+            name: serviceaccount-token
+            readOnly: true
         # Images pinned by digest, the chart's v1.21.2 images; a chart bump needs
         # their new digests, or the old images keep running under the new chart.
         image:
           tag: v1.21.2
           digest: sha256:70f532fd9cfde0b09d55687200942399d89838bc2d5d5b45152eb799a15912b8
         webhook:
+          replicaCount: 3
+          automountServiceAccountToken: false
+          serviceAccount:
+            automountServiceAccountToken: false
+          volumes:
+            - name: serviceaccount-token
+              projected:
+                defaultMode: 0444
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      name: kube-root-ca.crt
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                  - downwardAPI:
+                      items:
+                        - path: namespace
+                          fieldRef:
+                            apiVersion: v1
+                            fieldPath: metadata.namespace
+          volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: serviceaccount-token
+              readOnly: true
           image:
             tag: v1.21.2
             digest: sha256:a60e2dac46dbb8a7f3df95c54ce941012f54c2fe022f0ee55aaa1ab40ed957ae
         cainjector:
+          replicaCount: 2
+          # Only cert-manager's own webhook takes its CA from cainjector
+          extraArgs:
+            - --namespace=cert-manager
+            - --enable-certificates-data-source=false
+          automountServiceAccountToken: false
+          serviceAccount:
+            automountServiceAccountToken: false
+          volumes:
+            - name: serviceaccount-token
+              projected:
+                defaultMode: 0444
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      name: kube-root-ca.crt
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                  - downwardAPI:
+                      items:
+                        - path: namespace
+                          fieldRef:
+                            apiVersion: v1
+                            fieldPath: metadata.namespace
+          volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: serviceaccount-token
+              readOnly: true
           image:
             tag: v1.21.2
             digest: sha256:c85268c64f2e0e76684bf5fe8906caff34b82523561c6affe0fae3546bd87562
@@ -34,6 +124,32 @@ spec:
             tag: v1.21.2
             digest: sha256:699b40d622211ab7accad8a21b04c5fbaa1841ef7a12621e8de492dbe27b2503
         startupapicheck:
+          automountServiceAccountToken: false
+          serviceAccount:
+            automountServiceAccountToken: false
+          volumes:
+            - name: serviceaccount-token
+              projected:
+                defaultMode: 0444
+                sources:
+                  - serviceAccountToken:
+                      expirationSeconds: 3607
+                      path: token
+                  - configMap:
+                      name: kube-root-ca.crt
+                      items:
+                        - key: ca.crt
+                          path: ca.crt
+                  - downwardAPI:
+                      items:
+                        - path: namespace
+                          fieldRef:
+                            apiVersion: v1
+                            fieldPath: metadata.namespace
+          volumeMounts:
+            - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              name: serviceaccount-token
+              readOnly: true
           image:
             tag: v1.21.2
             digest: sha256:46e75b6866359ffb5d82624f41e3ed1c70b2994982702ced547ce5edb418a8f5
