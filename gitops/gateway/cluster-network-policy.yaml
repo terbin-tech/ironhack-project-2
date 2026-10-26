@@ -1,0 +1,21 @@
+# Baseline tier: denies only traffic of pods that no NetworkPolicy in their namespace selects, such as pods in a namespace added later.
+apiVersion: networking.k8s.aws/v1alpha1
+kind: ClusterNetworkPolicy
+metadata:
+  name: baseline-default-deny
+spec:
+  tier: Baseline
+  priority: 1000
+  subject:
+    namespaces: {}
+  ingress:
+    - name: deny-from-all-pods
+      action: Deny
+      from:
+        - namespaces: {}
+  egress:
+    - name: deny-to-everything
+      action: Deny
+      to:
+        - networks:
+            - 0.0.0.0/0
