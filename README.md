@@ -185,7 +185,7 @@ git pull --rebase
 3. Its last job sets the new `newTag` values in `gitops/apps/voting/kustomization.yaml` and commits them to `main` through GitHub's GraphQL `createCommitOnBranch`, so GitHub signs the commit.
 4. Argo CD sees the new commit on its next poll and rolls out the new image. The pipeline never connects to the cluster and holds no credentials for it.
 
-`ci.yml` runs on every push and pull request except the deploy workflow's own tag commits: they are pushed with the `GITHUB_TOKEN`, and GitHub starts no workflow run from events that token causes ([triggering a workflow from a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)). It runs `terraform fmt` and `validate` for each root, `kubectl kustomize` of the apps, and hadolint on the three Dockerfiles.
+`ci.yml` runs on every push and pull request except the deploy workflow's own tag commits: they are pushed with the `GITHUB_TOKEN`, and GitHub starts no workflow run from events that token causes ([triggering a workflow from a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)). It runs `terraform fmt` and `validate` for each root, `kubectl kustomize` of the apps, and hadolint on the three Dockerfiles; on pull requests it also runs GitHub's dependency review.
 
 **Pull before you push.** Every deploy adds a tag commit to `main`, so run `git pull --rebase` before pushing. The `main` ruleset blocks force pushes.
 
@@ -284,7 +284,7 @@ For AWS resources, `terraform plan` showing no changes is the drift check.
 - **TLS** from the browser to the gateway, and from the apps to RDS and Valkey with certificate verification ([RDS SSL](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.SSL.html), [ElastiCache in-transit encryption](https://docs.aws.amazon.com/AmazonElastiCache/latest/dg/in-transit-encryption.html)). Inside the cluster, gateway to pods is plain HTTP.
 - **Encryption at rest** on RDS and Valkey; Kubernetes Secrets use EKS's default envelope encryption.
 - **Workload hardening** in `voting`: [Pod Security](https://kubernetes.io/docs/concepts/security/pod-security-standards/) `restricted`, non-root containers with all capabilities dropped and read-only root filesystems, resource requests and limits, and default-deny [network policies](https://docs.aws.amazon.com/eks/latest/userguide/auto-net-pol.html) with explicit allows (gateway to vote and result on 80; DNS; vote and worker to Valkey; worker and result to Postgres).
-- **Supply chain.** Images are tagged with the commit SHA and immutable in ECR. Every GitHub Action is pinned to a full commit SHA, and the repository requires it.
+- **Supply chain.** Images are tagged with the commit SHA and immutable in ECR. Every GitHub Action is pinned to a full commit SHA, and the repository requires it. Dependabot alerts and security updates are on, and `.github/dependabot.yml` asks for weekly version updates of the actions, the three apps' packages and their base images; a Dependabot pull request deploys only when merged. CodeQL default setup scans the code, and secret scanning scans the history.
 - The repository is public and holds no secret. Push access to `main` controls what runs in the cluster.
 
 ## Password rotation
