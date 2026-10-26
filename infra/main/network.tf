@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 data "aws_availability_zones" "available" {
   state = "available"
 
@@ -30,4 +32,31 @@ module "vpc" {
   private_subnet_tags = {
     "kubernetes.io/role/internal-elb" = 1
   }
+
+  # Flow logs of rejected packets to CloudWatch Logs, aggregated over 600 s
+  enable_flow_log                           = true
+  flow_log_traffic_type                     = "REJECT"
+  flow_log_destination_type                 = "cloud-watch-logs"
+  flow_log_max_aggregation_interval         = 600
+  create_flow_log_cloudwatch_log_group      = true
+  flow_log_cloudwatch_log_group_name_suffix = "martin-project-2"
+  create_flow_log_cloudwatch_iam_role       = true
+  vpc_flow_log_iam_role_name                = "martin-project-2-vpc-flow-log"
+  vpc_flow_log_iam_role_use_name_prefix     = false
+  vpc_flow_log_iam_policy_name              = "martin-project-2-vpc-flow-log"
+  vpc_flow_log_iam_policy_use_name_prefix   = false
+
+  # Only flow logs of this account's own VPC may use the delivery role
+  flow_log_cloudwatch_iam_role_conditions = [
+    {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    },
+    {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:ec2:us-east-1:${data.aws_caller_identity.current.account_id}:vpc-flow-log/*"]
+    },
+  ]
 }

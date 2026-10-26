@@ -41,10 +41,24 @@ resource "aws_db_instance" "this" {
   deletion_protection        = false
   skip_final_snapshot        = true
   delete_automated_backups   = true
-  auto_minor_version_upgrade = false
+  auto_minor_version_upgrade = true
+
+  performance_insights_enabled = true
+
+  # Referring to the log groups makes them exist before the export starts and
+  # go after the instance at teardown
+  enabled_cloudwatch_logs_exports = keys(aws_cloudwatch_log_group.rds)
 
   # Apply reviewed changes at apply time, not in the next weekly maintenance window
   apply_immediately = true
+}
+
+# The groups RDS writes its exported logs to, created here so they carry the
+# project's tags
+resource "aws_cloudwatch_log_group" "rds" {
+  for_each = toset(["postgresql", "upgrade"])
+
+  name = "/aws/rds/instance/martin-project-2/${each.key}"
 }
 
 resource "aws_elasticache_subnet_group" "this" {

@@ -89,6 +89,64 @@ resource "aws_sns_topic" "alarm" {
   name = "martin-project-2-s3-alarm"
 }
 
+# The policy replaces the topic's whole policy, so it repeats SNS's default
+# statement and adds one that lets EventBridge publish for the GuardDuty rule in
+# infra/main.
+resource "aws_sns_topic_policy" "alarm" {
+  arn    = aws_sns_topic.alarm.arn
+  policy = data.aws_iam_policy_document.alarm_topic.json
+}
+
+data "aws_iam_policy_document" "alarm_topic" {
+  policy_id = "__default_policy_ID"
+
+  statement {
+    sid = "__default_statement_ID"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    actions = [
+      "SNS:GetTopicAttributes",
+      "SNS:SetTopicAttributes",
+      "SNS:AddPermission",
+      "SNS:RemovePermission",
+      "SNS:DeleteTopic",
+      "SNS:Subscribe",
+      "SNS:ListSubscriptionsByTopic",
+      "SNS:Publish",
+    ]
+
+    resources = [aws_sns_topic.alarm.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceOwner"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+
+  statement {
+    sid = "GuardDutyFindingsRule"
+
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.alarm.arn]
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:events:us-east-1:${data.aws_caller_identity.current.account_id}:rule/martin-project-2-guardduty"]
+    }
+  }
+}
+
 resource "aws_sns_topic_subscription" "alarm" {
   count = var.alarm_email == null ? 0 : 1
 

@@ -79,8 +79,8 @@ flowchart TB
 The setup has three layers:
 
 1. **Terraform** (`infra/`), applied after its plan is reviewed:
-   - `infra/bootstrap`: the S3 bucket that holds the other roots' state, the bucket for its access logs, and an alarm on requests to it without TLS.
-   - `infra/main`: the VPC (two availability zones, one NAT gateway in each), the EKS Auto Mode cluster `martin-project-2` (Kubernetes 1.37), the Argo CD capability and its IAM role, the Secrets Store CSI driver add-on (ASCP), RDS, Valkey, the ECR repositories, the IAM roles and the Pod Identity associations.
+   - `infra/bootstrap`: the S3 bucket that holds the other roots' state, the bucket for its access logs, an alarm on requests to it without TLS, and the SNS topic `martin-project-2-s3-alarm` that every alarm and alert of the project emails.
+   - `infra/main`: the VPC (two availability zones, one NAT gateway in each), the EKS Auto Mode cluster `martin-project-2` (Kubernetes 1.37), the Argo CD capability and its IAM role, the Secrets Store CSI driver add-on (ASCP), RDS (with Performance Insights and its logs exported to CloudWatch Logs), Valkey, the ECR repositories, the IAM roles, the Pod Identity associations, the alarms AWS recommends for RDS, Valkey, the NAT gateways and the cluster's etcd database, an EventBridge rule that emails the cluster's GuardDuty findings, and VPC flow logs of rejected packets.
    - `infra/gitops-bridge`: the few objects Terraform has to fill in before Argo CD can start (the [GitOps Bridge](https://github.com/gitops-bridge-dev/gitops-bridge) pattern): the Argo CD cluster Secret, `argocd-cm`, the `project-2` AppProject, the root Application, the `voting` namespace with its Pod Security labels, the Pod Security labels of the `argocd`, `default`, `aws-secrets-manager` and `amazon-guardduty` namespaces, the `voting-config` ConfigMap (database and Valkey endpoints), the `voting-db` SecretProviderClass and the `voting-valkey-vote` and `voting-valkey-worker` SecretProviderClasses (each app's Valkey user).
 2. **GitOps, platform** (`gitops/root/`, an [app of apps](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/)): the Gateway API CRDs, NGINX Gateway Fabric, cert-manager and ExternalDNS, each pinned to an exact version, and the `gateway` Application (the Gateway, the HTTP to HTTPS redirect and the ClusterIssuers), all ordered by sync waves.
 3. **GitOps, apps** (`gitops/apps/voting/`, Kustomize): the Deployments, Services, ServiceAccounts, HTTPRoutes, NetworkPolicies, PodDisruptionBudgets and the ConfigMap that turns network policy on.
@@ -91,8 +91,8 @@ Every Application has automated sync with prune and self heal, so a manual chang
 
 ```
 infra/
-  bootstrap/        S3 state and log buckets, TLS alarm (its own state stays local and git-ignored)
-  main/             VPC, EKS Auto Mode, Argo CD capability, RDS, Valkey, ECR, IAM, Pod Identity, ASCP add-on
+  bootstrap/        S3 state and log buckets, TLS alarm, alarm topic (its own state stays local and git-ignored)
+  main/             VPC, EKS Auto Mode, Argo CD capability, RDS, Valkey, ECR, IAM, Pod Identity, ASCP add-on, alarms, flow logs
   gitops-bridge/    cluster Secret, argocd-cm, AppProject, root Application, voting namespace, Pod Security labels, voting-config, voting-db, voting-valkey-*
 gitops/
   root/             the Argo CD Applications the root Application watches
@@ -128,7 +128,7 @@ terraform -chdir=infra/bootstrap plan -out=tfplan
 terraform -chdir=infra/bootstrap apply tfplan
 ```
 
-The plan adds 20 resources: the state bucket with its versioning, public access block, TLS-only policy and access logging; a log bucket for the access logs and the CloudTrail log files; the account's first state bucket, in the global namespace, which is kept empty rather than deleted, as the [S3 security best practices](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html) recommend; a resource group of the project's buckets; and the alarm on requests without TLS (a CloudTrail trail of the state buckets' object requests, its log group and role, a metric filter, the alarm and its SNS topic). For the alarm to email someone, put `alarm_email` in the git-ignored `infra/bootstrap/terraform.tfvars`, which adds the email subscription; the address confirms it by email. The other roots use it with S3 native state locking (`use_lockfile`, see the [S3 backend docs](https://developer.hashicorp.com/terraform/language/backend/s3)).
+The plan adds 21 resources: the state bucket with its versioning, public access block, TLS-only policy and access logging; a log bucket for the access logs and the CloudTrail log files; the account's first state bucket, in the global namespace, which is kept empty rather than deleted, as the [S3 security best practices](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html) recommend; a resource group of the project's buckets; and the alarm on requests without TLS (a CloudTrail trail of the state buckets' object requests, its log group and role, a metric filter, the alarm and its SNS topic); and the topic's policy, which also lets EventBridge publish for the GuardDuty rule in `infra/main`. For the alarm to email someone, put `alarm_email` in the git-ignored `infra/bootstrap/terraform.tfvars`, which adds the email subscription; the address confirms it by email. The other roots use it with S3 native state locking (`use_lockfile`, see the [S3 backend docs](https://developer.hashicorp.com/terraform/language/backend/s3)).
 
 ### 2. Cluster, data tier and registry
 
@@ -140,7 +140,7 @@ terraform -chdir=infra/main plan -out=tfplan
 terraform -chdir=infra/main apply tfplan
 ```
 
-The plan adds 65 resources. The apply took about 12 minutes; the Multi-AZ RDS instance is the slowest part.
+The plan adds 100 resources. The apply took about 12 minutes; the Multi-AZ RDS instance is the slowest part.
 
 ```bash
 aws eks update-kubeconfig --name martin-project-2 --region us-east-1
@@ -234,7 +234,7 @@ The live update was also checked in a browser: with two windows open, a vote sho
 | Brief says | This repo | Why, with source |
 |---|---|---|
 | Install the NGINX Ingress Controller with Helm and use an `Ingress` with the `kubernetes.io/ingress.class: "nginx"` annotation | NGINX Gateway Fabric with the Gateway API (`GatewayClass`, `Gateway`, `HTTPRoute`), still NGINX and still a Helm chart | ingress-nginx is retired and its repository archived, and Kubernetes recommends Gateway API: [retirement post](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/), [Ingress controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) (the Ingress API "has been frozen"), [ingress-nginx](https://github.com/kubernetes/ingress-nginx). The annotation itself was replaced by `spec.ingressClassName` long ago. |
-| Deploy Redis and Postgres "to the cluster (as Deployments)" | Amazon ElastiCache for Valkey (Multi-AZ replication group) and Amazon RDS for PostgreSQL Multi-AZ, created by Terraform | AWS runs the cross-zone failover, daily backups (kept 7 days on both) and maintenance. The PostgreSQL version is pinned, so engine upgrades are a deliberate change. |
+| Deploy Redis and Postgres "to the cluster (as Deployments)" | Amazon ElastiCache for Valkey (Multi-AZ replication group) and Amazon RDS for PostgreSQL Multi-AZ, created by Terraform | AWS runs the cross-zone failover, daily backups (kept 7 days on both) and maintenance. Minor engine upgrades are automatic in the weekly maintenance window. Terraform pins the version it created (18.6), so after an automatic upgrade the pin in `infra/main/data.tf` is raised to the new version; otherwise the next plan would try to downgrade. |
 | vote, result and worker each with a Deployment and a Service | vote and result have Services; the worker has none | The worker listens on no port, so a Service would select nothing useful. |
 | GitHub Actions deploys with `kubectl apply -f K8s/` | GitHub Actions builds, pushes and records the image tag in Git; Argo CD pulls and applies | [OpenGitOps](https://opengitops.dev/) principle "Pulled Automatically"; no cluster credentials outside AWS, and the Kubernetes API stays restricted. |
 | `aws-actions/configure-aws-credentials@v1` with access key secrets | `configure-aws-credentials` v6.3.0 pinned to its commit SHA, with `role-to-assume` over OIDC | Short-lived credentials and no stored keys: [GitHub OIDC in AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws). |
@@ -293,6 +293,7 @@ For AWS resources, `terraform plan` showing no changes is the drift check.
 - **A cluster-wide default deny** (`gitops/gateway/cluster-network-policy.yaml`): a Baseline-tier [ClusterNetworkPolicy](https://docs.aws.amazon.com/eks/latest/userguide/auto-net-pol.html) that denies traffic to and from pods no network policy in their namespace selects, such as pods in a namespace added later. Namespace policies override it, so it changes nothing for the namespaces above.
 - **Terraform state.** The state buckets and the log bucket refuse every request without TLS, the state bucket's access is logged to the log bucket, and a CloudWatch alarm fires on any request to the state buckets without TLS. Their public access is blocked and the state bucket keeps every version.
 - **Supply chain.** Images are tagged with the commit SHA and immutable in ECR, and the pods run them by digest (`tag@sha256:...`): the app images through the tag commit, cert-manager's through its chart's digest values. ExternalDNS and NGINX Gateway Fabric run by tag, since their charts have no digest setting. Every GitHub Action is pinned to a full commit SHA, and the repository requires it. Dependabot alerts and security updates are on, and `.github/dependabot.yml` asks for weekly version updates of the actions, the three apps' packages and their base images; a Dependabot pull request deploys only when merged. CodeQL default setup scans the code, and secret scanning scans the history.
+- **Alarms and alerts.** The alarms AWS [recommends](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/Best_Practice_Recommended_Alarms_AWS_Services.html) for RDS, Valkey and the NAT gateways, one on the size of the cluster's etcd database, and an EventBridge rule for [GuardDuty findings](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings_eventbridge.html) of medium severity or higher on this cluster all email through the alarm topic. RDS exports its `postgresql` and `upgrade` logs to CloudWatch Logs, and VPC flow logs record rejected packets.
 - The repository is public and holds no secret. Push access to `main` controls what runs in the cluster.
 
 ## Password rotation
@@ -312,6 +313,8 @@ Tested in this build: a forced rotation (`aws rds modify-db-instance --db-instan
 - **No image scan counts.** The account's registry uses Amazon Inspector enhanced scanning, which overrides the repositories' scan on push, and Inspector covers none of the account's repositories created since 1 Oct, these three included, so no critical or high counts are available. The cause is not known, and a fix would change the shared account's settings.
 - **vote's memory limit.** The vote image runs 4 gunicorn workers under a 256Mi memory limit; watch it for `OOMKilled` restarts.
 - **The certificate renewal paths are untested under the network policies.** NGINX to cert-manager's HTTP-01 solver, cert-manager to Let's Encrypt and its port-80 self-check run only when the certificate renews (next on 22 Dec), so only the policy contents show them.
+- **The database runs low on memory.** The `db.t4g.micro` instance keeps about 14 percent of its 1 GiB free and uses some swap, below the 25 percent AWS's recommended alarm names, so the `martin-project-2-rds-freeable-memory` alarm is in ALARM. The instance class stays for now; a class change restarts the database.
+- **GuardDuty's node findings are not proven to reach the alarm topic.** The rule matches node findings by the node's `kubernetes.io/cluster/martin-project-2` tag; no such finding has occurred, and a sample finding would change the shared account's GuardDuty.
 - **The Valkey passwords are not rotated.** Terraform sets each Valkey user's password once. vote reads its password file on every request and the worker on every connection attempt, so a rotation would need no restart, but no rotation function is deployed.
 
 ## Teardown
@@ -356,7 +359,7 @@ Teardown works on the cluster and in Terraform; the manifests and tag commits st
    aws ec2 describe-network-interfaces --include-managed-resources --filters Name=vpc-id,Values=<vpc_id>
    ```
 
-5. Destroy the state buckets, the log bucket and the alarm. `force_destroy` empties every object version; the last command then returns `404`. AWS recommends keeping a global-namespace bucket emptied instead of deleting it, so that no one else can take its name; to keep `martin-tfstate-686699774218-us-east-1`, remove its four resources from bootstrap's state before the destroy:
+5. Destroy the state buckets, the log bucket, the alarm and the alarm topic. `force_destroy` empties every object version; the last command then returns `404`. AWS recommends keeping a global-namespace bucket emptied instead of deleting it, so that no one else can take its name; to keep `martin-tfstate-686699774218-us-east-1`, remove its four resources from bootstrap's state before the destroy:
 
    ```bash
    terraform -chdir=infra/bootstrap plan -destroy -out=tfplan
@@ -378,7 +381,7 @@ Teardown works on the cluster and in Terraform; the manifests and tag commits st
    aws resourcegroupstaggingapi get-resources --tag-filters Key=eks:eks-cluster-name,Values=martin-project-2
    ```
 
-   Also check, with `--include-managed-resources` and the cluster tag filter where they apply: EC2 instances, launch templates, network interfaces, volumes and security groups; the Auto Mode instance profile; RDS snapshots and automated backups; ElastiCache snapshots; the RDS-managed secret; the CloudWatch log group `/aws/eks/martin-project-2/`; IAM roles and policies starting `martin-`; the three Route 53 names; and the Identity Center applications.
+   Also check, with `--include-managed-resources` and the cluster tag filter where they apply: EC2 instances, launch templates, network interfaces, volumes and security groups; the Auto Mode instance profile; RDS snapshots and automated backups; ElastiCache snapshots; the RDS-managed secret; the CloudWatch log groups `/aws/eks/martin-project-2/`, `/aws/rds/instance/martin-project-2/` and `/aws/vpc-flow-log/martin-project-2`; IAM roles and policies starting `martin-`; the three Route 53 names; and the Identity Center applications.
 
    If the Auto Mode instance profile is left, list it and delete it by its exact name:
 
