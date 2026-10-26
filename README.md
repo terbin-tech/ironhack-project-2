@@ -304,7 +304,7 @@ Tested in this build: a forced rotation (`aws rds modify-db-instance --db-instan
 
 ## Known gaps
 
-- **Argo CD polls Git instead of using a webhook.** The [EKS docs](https://docs.aws.amazon.com/eks/latest/userguide/argocd-considerations.html) give a 6-minute poll by default; measured here, Argo CD synced a tag commit between 10 seconds and 13.5 minutes after it landed (13.5 minutes once on 23 Oct, 10 and 14 seconds on 26 Oct). For Argo CD to verify that a webhook payload came from GitHub, the same page has a shared secret stored in the `argocd-webhook-creds-secret` Secret in the cluster, outside Git, so polling stays.
+- **Argo CD polls Git instead of using a webhook.** The [EKS docs](https://docs.aws.amazon.com/eks/latest/userguide/argocd-considerations.html) give a 6-minute poll by default; measured here, Argo CD synced a tag commit between 10 seconds and 16.5 minutes after it landed (13.5 minutes on 23 Oct; 10 seconds, 14 seconds and 16.5 minutes on 26 Oct). For Argo CD to verify that a webhook payload came from GitHub, the same page has a shared secret stored in the `argocd-webhook-creds-secret` Secret in the cluster, outside Git, so polling stays.
 - **Re-run only the newest deploy run.** By the workflow's logic, re-running an older run would write its older tag back to `kustomization.yaml`, and Argo CD would then roll that service back.
 - **No image scan counts.** The account's registry uses Amazon Inspector enhanced scanning, which overrides the repositories' scan on push, and Inspector did not cover these ECR repositories, so no critical or high counts were available.
 - **vote's memory limit.** The vote image runs 4 gunicorn workers under a 256Mi memory limit; watch it for `OOMKilled` restarts.

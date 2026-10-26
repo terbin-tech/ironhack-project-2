@@ -12,56 +12,6 @@ locals {
   github_subject = "repo:terbin-tech@342395647/ironhack-project-2@1431057146:ref:refs/heads/main"
 }
 
-# Voting pods: read the database secret.
-data "aws_iam_policy_document" "voting_pods_trust" {
-  statement {
-    actions = ["sts:AssumeRole", "sts:TagSession"]
-
-    principals {
-      type        = "Service"
-      identifiers = ["pods.eks.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/kubernetes-namespace"
-      values   = ["voting"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/kubernetes-service-account"
-      values   = ["result", "worker"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:RequestTag/eks-cluster-arn"
-      values   = [module.eks.cluster_arn]
-    }
-  }
-}
-
-data "aws_iam_policy_document" "voting_pods" {
-  statement {
-    # No kms:Decrypt: the secret uses aws/secretsmanager, whose key policy
-    # allows use through Secrets Manager.
-    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
-    resources = [aws_db_instance.this.master_user_secret[0].secret_arn]
-  }
-}
-
-resource "aws_iam_role" "voting_pods" {
-  name               = "martin-project-2-voting-pods"
-  assume_role_policy = data.aws_iam_policy_document.voting_pods_trust.json
-}
-
-resource "aws_iam_role_policy" "voting_pods" {
-  name   = "database-secret"
-  role   = aws_iam_role.voting_pods.id
-  policy = data.aws_iam_policy_document.voting_pods.json
-}
-
 # One role per app, each trusted only by its own service account and reading
 # only the secrets that app uses.
 locals {
