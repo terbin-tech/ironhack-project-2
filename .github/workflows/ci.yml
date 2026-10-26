@@ -3,6 +3,8 @@ name: ci
 on:
   push:
   pull_request:
+  # deploy.yml calls this workflow, so a deploy runs only after these checks pass on the same commit.
+  workflow_call:
 
 permissions:
   contents: read

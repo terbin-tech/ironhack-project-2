@@ -181,7 +181,7 @@ git pull --rebase
 ## How a change reaches the cluster
 
 1. You push a change under `vote/`, `result/` or `worker/` to `main`.
-2. `deploy.yml` works out which services changed, logs in to AWS with GitHub's OIDC token (no stored AWS keys), builds each changed image for `linux/amd64` and pushes it to ECR tagged with the full commit SHA. If that tag already exists, it skips the build.
+2. `deploy.yml` first runs `ci.yml` on the same commit and stops if any check fails. It then works out which services changed, logs in to AWS with GitHub's OIDC token (no stored AWS keys), builds each changed image for `linux/amd64` and pushes it to ECR tagged with the full commit SHA. If that tag already exists, it skips the build.
 3. Its last job sets the new `newTag` values in `gitops/apps/voting/kustomization.yaml` and commits them to `main` through GitHub's GraphQL `createCommitOnBranch`, so GitHub signs the commit.
 4. Argo CD sees the new commit on its next poll and rolls out the new image. The pipeline never connects to the cluster and holds no credentials for it.
 

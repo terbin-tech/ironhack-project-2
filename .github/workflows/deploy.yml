@@ -25,7 +25,14 @@ env:
   KUSTOMIZATION: gitops/apps/voting/kustomization.yaml
 
 jobs:
+  # The CI checks on the same commit; a failure stops the deploy before any image is built.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
   changes:
+    needs: ci
     runs-on: ubuntu-latest
     permissions:
       contents: read
