@@ -206,3 +206,32 @@ resource "kubernetes_manifest" "voting_db" {
     }
   }
 }
+
+# The Valkey user and password for vote and for the worker, as the files
+# username and password, the same way.
+resource "kubernetes_manifest" "voting_valkey" {
+  for_each = local.main.valkey_secret_arns
+
+  manifest = {
+    apiVersion = "secrets-store.csi.x-k8s.io/v1"
+    kind       = "SecretProviderClass"
+    metadata = {
+      name      = "voting-valkey-${each.key}"
+      namespace = kubernetes_namespace_v1.voting.metadata[0].name
+    }
+    spec = {
+      provider = "aws"
+      parameters = {
+        usePodIdentity = "true"
+        objects = yamlencode([{
+          objectName = each.value
+          objectType = "secretsmanager"
+          jmesPath = [
+            { path = "username", objectAlias = "username" },
+            { path = "password", objectAlias = "password" },
+          ]
+        }])
+      }
+    }
+  }
+}

@@ -69,3 +69,7 @@ output "ecr_repository_urls" {
 output "github_actions_role_arn" {
   value = aws_iam_role.github_actions.arn
 }
+
+output "valkey_secret_arns" {
+  value = { for app, secret in aws_secretsmanager_secret.valkey : app => secret.arn }
+}

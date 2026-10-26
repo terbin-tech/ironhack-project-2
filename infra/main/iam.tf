@@ -62,13 +62,88 @@ resource "aws_iam_role_policy" "voting_pods" {
   policy = data.aws_iam_policy_document.voting_pods.json
 }
 
+# One role per app, each trusted only by its own service account and reading
+# only the secrets that app uses.
+locals {
+  voting_pod_secrets = {
+    vote   = [aws_secretsmanager_secret.valkey["vote"].arn]
+    result = [aws_db_instance.this.master_user_secret[0].secret_arn]
+    worker = [aws_db_instance.this.master_user_secret[0].secret_arn, aws_secretsmanager_secret.valkey["worker"].arn]
+  }
+}
+
+data "aws_iam_policy_document" "voting_pod_trust" {
+  for_each = local.voting_pod_secrets
+
+  statement {
+    actions = ["sts:AssumeRole", "sts:TagSession"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["pods.eks.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/kubernetes-namespace"
+      values   = ["voting"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/kubernetes-service-account"
+      values   = [each.key]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/eks-cluster-arn"
+      values   = [module.eks.cluster_arn]
+    }
+
+    # Confused-deputy protection: EKS sends the organization ID of the account
+    # it acts for. $${...} is the IAM policy variable, not a Terraform one.
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceOrgId"
+      values   = ["$${aws:ResourceOrgId}"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "voting_pod" {
+  for_each = local.voting_pod_secrets
+
+  statement {
+    # No kms:Decrypt: the secrets use aws/secretsmanager, whose key policy
+    # allows use through Secrets Manager.
+    actions   = ["secretsmanager:GetSecretValue", "secretsmanager:DescribeSecret"]
+    resources = each.value
+  }
+}
+
+resource "aws_iam_role" "voting_pod" {
+  for_each = local.voting_pod_secrets
+
+  name               = "martin-project-2-${each.key}"
+  assume_role_policy = data.aws_iam_policy_document.voting_pod_trust[each.key].json
+}
+
+resource "aws_iam_role_policy" "voting_pod" {
+  for_each = local.voting_pod_secrets
+
+  name   = "secrets"
+  role   = aws_iam_role.voting_pod[each.key].id
+  policy = data.aws_iam_policy_document.voting_pod[each.key].json
+}
+
 resource "aws_eks_pod_identity_association" "voting" {
-  for_each = toset(["result", "worker"])
+  for_each = local.voting_pod_secrets
 
   cluster_name    = module.eks.cluster_name
   namespace       = "voting"
   service_account = each.key
-  role_arn        = aws_iam_role.voting_pods.arn
+  role_arn        = aws_iam_role.voting_pod[each.key].arn
 }
 
 # ExternalDNS: change only the app's three records in the shared zone.

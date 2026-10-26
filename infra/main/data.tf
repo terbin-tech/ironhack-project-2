@@ -87,4 +87,75 @@ resource "aws_elasticache_replication_group" "this" {
 
   subnet_group_name  = aws_elasticache_subnet_group.this.name
   security_group_ids = [aws_security_group.valkey.id]
+
+  # Role-based access control: only the users in this group can connect
+  user_group_ids = [aws_elasticache_user_group.transition.id]
+
+  # Apply reviewed changes at apply time, not in the next weekly maintenance window
+  apply_immediately = true
+}
+
+# One Valkey user per app that uses the queue (result does not), allowed only
+# the commands that app runs, on the votes key alone.
+locals {
+  valkey_users = {
+    vote = "on ~votes -@all +rpush"
+    # The list commands, and the commands StackExchange.Redis needs to connect
+    worker = "on ~votes -@all +lpop +lpush +client +info +echo"
+  }
+}
+
+# Each password goes to Secrets Manager write-only and is read back for the
+# Valkey user, so neither the state nor a plan holds it.
+ephemeral "aws_secretsmanager_random_password" "valkey" {
+  for_each = local.valkey_users
+
+  password_length = 64
+  # ElastiCache does not allow these in user passwords
+  exclude_characters = ",\"/@"
+}
+
+resource "aws_secretsmanager_secret" "valkey" {
+  for_each = local.valkey_users
+
+  name        = "martin-project-2-valkey-${each.key}"
+  description = "Valkey user and password for ${each.key}"
+}
+
+resource "aws_secretsmanager_secret_version" "valkey" {
+  for_each = local.valkey_users
+
+  secret_id = aws_secretsmanager_secret.valkey[each.key].id
+  secret_string_wo = jsonencode({
+    username = "martin-project-2-${each.key}"
+    password = ephemeral.aws_secretsmanager_random_password.valkey[each.key].random_password
+  })
+  secret_string_wo_version = 1
+}
+
+ephemeral "aws_secretsmanager_secret_version" "valkey" {
+  for_each = local.valkey_users
+
+  secret_id = aws_secretsmanager_secret_version.valkey[each.key].secret_id
+}
+
+resource "aws_elasticache_user" "valkey" {
+  for_each = local.valkey_users
+
+  user_id   = "martin-project-2-${each.key}"
+  user_name = "martin-project-2-${each.key}"
+  # redis so the users can join the transitional group below
+  engine        = "redis"
+  access_string = each.value
+
+  passwords_wo         = jsondecode(ephemeral.aws_secretsmanager_secret_version.valkey[each.key].secret_string).password
+  passwords_wo_version = aws_secretsmanager_secret_version.valkey[each.key].secret_string_wo_version
+}
+
+# Transitional: the built-in default user (no password) keeps the running apps
+# connected until they log in as their own users.
+resource "aws_elasticache_user_group" "transition" {
+  user_group_id = "martin-project-2-transition"
+  engine        = "redis"
+  user_ids      = concat(["default"], [for user in aws_elasticache_user.valkey : user.user_id])
 }
