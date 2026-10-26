@@ -10,10 +10,13 @@ resources:
 images:
   - name: vote
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-vote
-    newTag: 7e6c770ea5cffa21f0781cabafd2c267ead4d441
+    newTag: 5b630d9e5fd8bd9540eb6715cef46b002766ac66
+    digest: sha256:66420d9764bb04376ea42cfeba0120598dd7455089031e257ce134bddc41e2db
   - name: result
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-result
-    newTag: 4876e89d9b8c5613ca8b6bc5d9955f7e0697a22d
+    newTag: 5b630d9e5fd8bd9540eb6715cef46b002766ac66
+    digest: sha256:a987beee7db4a2c5279c4294464855f680f9e587827415c322854cffd1117931
   - name: worker
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-worker
-    newTag: 7e6c770ea5cffa21f0781cabafd2c267ead4d441
+    newTag: 5b630d9e5fd8bd9540eb6715cef46b002766ac66
+    digest: sha256:ea5257482c443d4f4b961394f68b7d1b37b07b2979cd0518e532b7b08811df3d
