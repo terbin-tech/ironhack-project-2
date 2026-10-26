@@ -80,7 +80,7 @@ The setup has three layers:
 
 1. **Terraform** (`infra/`), applied after its plan is reviewed:
    - `infra/bootstrap`: the S3 bucket that holds the other roots' state, the bucket for its access logs, an alarm on requests to it without TLS, and the SNS topic `martin-project-2-s3-alarm` that every alarm and alert of the project emails.
-   - `infra/main`: the VPC (two availability zones, one NAT gateway in each), the EKS Auto Mode cluster `martin-project-2` (Kubernetes 1.37), the Argo CD capability and its IAM role, the Secrets Store CSI driver add-on (ASCP), RDS (with Performance Insights and its logs exported to CloudWatch Logs), Valkey, the ECR repositories, the IAM roles, the Pod Identity associations, the alarms AWS recommends for RDS, Valkey, the NAT gateways and the cluster's etcd database, an EventBridge rule that emails the cluster's GuardDuty findings, and VPC flow logs of rejected packets.
+   - `infra/main`: the VPC (two availability zones, one NAT gateway in each), the EKS Auto Mode cluster `martin-project-2` (Kubernetes 1.37), the Argo CD capability and its IAM role, the Secrets Store CSI driver add-on (ASCP), RDS (its logs exported to CloudWatch Logs), Valkey, the ECR repositories, the IAM roles, the Pod Identity associations, the alarms AWS recommends for RDS, Valkey, the NAT gateways and the cluster's etcd database, an EventBridge rule that emails the cluster's GuardDuty findings, and VPC flow logs of rejected packets.
    - `infra/gitops-bridge`: the few objects Terraform has to fill in before Argo CD can start (the [GitOps Bridge](https://github.com/gitops-bridge-dev/gitops-bridge) pattern): the Argo CD cluster Secret, `argocd-cm`, the `project-2` AppProject, the root Application, the `voting` namespace with its Pod Security labels, the Pod Security labels of the `argocd`, `default`, `aws-secrets-manager` and `amazon-guardduty` namespaces, the `voting-config` ConfigMap (database and Valkey endpoints), the `voting-db` SecretProviderClass and the `voting-valkey-vote` and `voting-valkey-worker` SecretProviderClasses (each app's Valkey user).
 2. **GitOps, platform** (`gitops/root/`, an [app of apps](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/)): the Gateway API CRDs, NGINX Gateway Fabric, cert-manager and ExternalDNS, each pinned to an exact version, and the `gateway` Application (the Gateway, the HTTP to HTTPS redirect and the ClusterIssuers), all ordered by sync waves.
 3. **GitOps, apps** (`gitops/apps/voting/`, Kustomize): the Deployments, Services, ServiceAccounts, HTTPRoutes, NetworkPolicies, PodDisruptionBudgets and the ConfigMap that turns network policy on.
@@ -140,7 +140,7 @@ terraform -chdir=infra/main plan -out=tfplan
 terraform -chdir=infra/main apply tfplan
 ```
 
-The plan adds 100 resources. The apply took about 12 minutes; the Multi-AZ RDS instance is the slowest part.
+The plan adds 99 resources. The apply took about 12 minutes; the Multi-AZ RDS instance is the slowest part.
 
 ```bash
 aws eks update-kubeconfig --name martin-project-2 --region us-east-1

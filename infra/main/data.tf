@@ -43,8 +43,6 @@ resource "aws_db_instance" "this" {
   delete_automated_backups   = true
   auto_minor_version_upgrade = true
 
-  performance_insights_enabled = true
-
   # Referring to the log groups makes them exist before the export starts and
   # go after the instance at teardown
   enabled_cloudwatch_logs_exports = keys(aws_cloudwatch_log_group.rds)

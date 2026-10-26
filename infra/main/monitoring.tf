@@ -52,14 +52,6 @@ locals {
       threshold = 268435456
       periods   = 15
     }
-    # The instance class's 2 vCPUs
-    db-load = {
-      metric    = "DBLoad"
-      statistic = "Average"
-      operator  = "GreaterThanThreshold"
-      threshold = 2
-      periods   = 15
-    }
   }
 
   # The replication group's member clusters, named <group>-001, <group>-002
