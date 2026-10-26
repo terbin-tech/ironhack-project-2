@@ -9,7 +9,7 @@ terraform {
   }
 
   backend "s3" {
-    bucket       = "martin-tfstate-686699774218-us-east-1"
+    bucket       = "martin-tfstate-686699774218-us-east-1-an"
     key          = "main/terraform.tfstate"
     region       = "us-east-1"
     use_lockfile = true

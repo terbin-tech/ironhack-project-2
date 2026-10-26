@@ -79,7 +79,7 @@ flowchart TB
 The setup has three layers:
 
 1. **Terraform** (`infra/`), applied after its plan is reviewed:
-   - `infra/bootstrap`: the S3 bucket that holds the other roots' state.
+   - `infra/bootstrap`: the S3 bucket that holds the other roots' state, the bucket for its access logs, and an alarm on requests to it without TLS.
    - `infra/main`: the VPC (two availability zones, one NAT gateway in each), the EKS Auto Mode cluster `martin-project-2` (Kubernetes 1.37), the Argo CD capability and its IAM role, the Secrets Store CSI driver add-on (ASCP), RDS, Valkey, the ECR repositories, the IAM roles and the Pod Identity associations.
    - `infra/gitops-bridge`: the few objects Terraform has to fill in before Argo CD can start (the [GitOps Bridge](https://github.com/gitops-bridge-dev/gitops-bridge) pattern): the Argo CD cluster Secret, `argocd-cm`, the `project-2` AppProject, the root Application, the `voting` namespace with its Pod Security labels, the Pod Security labels of the `argocd`, `default`, `aws-secrets-manager` and `amazon-guardduty` namespaces, the `voting-config` ConfigMap (database and Valkey endpoints), the `voting-db` SecretProviderClass and the `voting-valkey-vote` and `voting-valkey-worker` SecretProviderClasses (each app's Valkey user).
 2. **GitOps, platform** (`gitops/root/`, an [app of apps](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/)): the Gateway API CRDs, NGINX Gateway Fabric, cert-manager and ExternalDNS, each pinned to an exact version, and the `gateway` Application (the Gateway, the HTTP to HTTPS redirect and the ClusterIssuers), all ordered by sync waves.
@@ -91,7 +91,7 @@ Every Application has automated sync with prune and self heal, so a manual chang
 
 ```
 infra/
-  bootstrap/        S3 state bucket (its own state stays local and git-ignored)
+  bootstrap/        S3 state and log buckets, TLS alarm (its own state stays local and git-ignored)
   main/             VPC, EKS Auto Mode, Argo CD capability, RDS, Valkey, ECR, IAM, Pod Identity, ASCP add-on
   gitops-bridge/    cluster Secret, argocd-cm, AppProject, root Application, voting namespace, Pod Security labels, voting-config, voting-db, voting-valkey-*
 gitops/
@@ -112,7 +112,7 @@ docker-compose.yml  builds the three apps from source
 - **GitHub OIDC provider:** the account must already have the IAM OIDC provider for `token.actions.githubusercontent.com`. It is shared with other projects in the account, so Terraform only reads it and never creates or changes it.
 - **`infra/main/terraform.tfvars`:** copy `infra/main/terraform.tfvars.example` and put your own public IP in `api_allowed_cidrs`. These are the CIDRs allowed to reach the cluster's public API endpoint. The file is git-ignored, so the author's IP is not in this public repository; the endpoint CIDRs are supplied at apply time, not stored in Git.
 
-This code is written for one account. Its account-specific values are the state bucket name (`infra/bootstrap/main.tf`, each root's backend block and the remote state block in `infra/gitops-bridge/versions.tf`), the cluster name that `infra/gitops-bridge/versions.tf` repeats in its provider block, the repository URL of this fork (`infra/gitops-bridge/main.tf`, `gitops/root/gateway.yaml`, `gitops/root/voting.yaml`), the IAM user (`infra/main/cluster.tf`), the hosted zone and DNS names (`infra/main/iam.tf`, `gitops/root/external-dns.yaml`, `gitops/gateway/`, `gitops/apps/voting/routes.yaml`), the GitHub subject (`infra/main/iam.tf`) and the registry and role (`.github/workflows/deploy.yml`, `gitops/apps/voting/kustomization.yaml`).
+This code is written for one account. Its account-specific values are the state bucket name (each root's backend block and the remote state block in `infra/gitops-bridge/versions.tf`; `infra/bootstrap/main.tf` derives the bucket names from the account ID and keeps this account's first, global-namespace bucket by name), the cluster name that `infra/gitops-bridge/versions.tf` repeats in its provider block, the repository URL of this fork (`infra/gitops-bridge/main.tf`, `gitops/root/gateway.yaml`, `gitops/root/voting.yaml`), the IAM user (`infra/main/cluster.tf`), the hosted zone and DNS names (`infra/main/iam.tf`, `gitops/root/external-dns.yaml`, `gitops/gateway/`, `gitops/apps/voting/routes.yaml`), the GitHub subject (`infra/main/iam.tf`) and the registry and role (`.github/workflows/deploy.yml`, `gitops/apps/voting/kustomization.yaml`).
 
 ## Deploy
 
@@ -120,7 +120,7 @@ These are the commands this build ran, in order. A Terraform plan is read before
 
 ### 1. State bucket
 
-`infra/bootstrap` creates the S3 bucket for the other roots' state. It keeps its own state locally (`infra/bootstrap/terraform.tfstate`), which is git-ignored, because the bucket cannot hold the state of the root that creates it.
+`infra/bootstrap` creates the S3 bucket for the other roots' state, in the [account regional namespace](https://docs.aws.amazon.com/AmazonS3/latest/userguide/gpbucketnamespaces.html), so no other account can ever take its name. It keeps its own state locally (`infra/bootstrap/terraform.tfstate`), which is git-ignored, because the bucket cannot hold the state of the root that creates it.
 
 ```bash
 terraform -chdir=infra/bootstrap init
@@ -128,7 +128,7 @@ terraform -chdir=infra/bootstrap plan -out=tfplan
 terraform -chdir=infra/bootstrap apply tfplan
 ```
 
-The plan adds 3 resources: the bucket, its versioning and its public access block. The other roots use it with S3 native state locking (`use_lockfile`, see the [S3 backend docs](https://developer.hashicorp.com/terraform/language/backend/s3)).
+The plan adds 20 resources: the state bucket with its versioning, public access block, TLS-only policy and access logging; a log bucket for the access logs and the CloudTrail log files; the account's first state bucket, in the global namespace, which is kept empty rather than deleted, as the [S3 security best practices](https://docs.aws.amazon.com/AmazonS3/latest/userguide/security-best-practices.html) recommend; a resource group of the project's buckets; and the alarm on requests without TLS (a CloudTrail trail of the state buckets' object requests, its log group and role, a metric filter, the alarm and its SNS topic). For the alarm to email someone, put `alarm_email` in the git-ignored `infra/bootstrap/terraform.tfvars`, which adds the email subscription; the address confirms it by email. The other roots use it with S3 native state locking (`use_lockfile`, see the [S3 backend docs](https://developer.hashicorp.com/terraform/language/backend/s3)).
 
 ### 2. Cluster, data tier and registry
 
@@ -291,6 +291,7 @@ For AWS resources, `terraform plan` showing no changes is the drift check.
 - **Pod Security on the other namespaces.** `gateway`, `nginx-gateway`, `cert-manager`, `external-dns`, `argocd` and `default` enforce `restricted` too; `aws-secrets-manager` and `amazon-guardduty` are labelled `privileged`, because the Secrets Store CSI driver and the GuardDuty agent need host access. The Kubernetes system namespaces (`kube-system`, `kube-public`, `kube-node-lease`) carry no label.
 - **Network policies on the platform namespaces**, one file per namespace in `gitops/gateway/`, each a default deny with explicit allows: `external-dns` (DNS; the Kubernetes API and Route 53 on 443; the EKS Pod Identity agent); `nginx-gateway` (DNS; the NGINX pods to the control plane on 8443; the control plane to the Kubernetes API and its product telemetry on 443); `cert-manager` (DNS; the Kubernetes API and Let's Encrypt on 443; the HTTP-01 self-check on 80; the API server to the webhook on 10250); `gateway` (DNS; the load balancer's two public subnets to NGINX on 80 and 443; NGINX to the control plane on 8443, to vote and result on 80, and to cert-manager's HTTP-01 solver on 8089); `aws-secrets-manager` (DNS; the Secrets Store CSI driver to the Kubernetes API on 443; the AWS provider to the Kubernetes API and Secrets Manager on 443 and to the EKS Pod Identity agent). `amazon-guardduty` has none: its pods use the host network, which pod network policies do not cover.
 - **A cluster-wide default deny** (`gitops/gateway/cluster-network-policy.yaml`): a Baseline-tier [ClusterNetworkPolicy](https://docs.aws.amazon.com/eks/latest/userguide/auto-net-pol.html) that denies traffic to and from pods no network policy in their namespace selects, such as pods in a namespace added later. Namespace policies override it, so it changes nothing for the namespaces above.
+- **Terraform state.** The state buckets and the log bucket refuse every request without TLS, the state bucket's access is logged to the log bucket, and a CloudWatch alarm fires on any request to the state buckets without TLS. Their public access is blocked and the state bucket keeps every version.
 - **Supply chain.** Images are tagged with the commit SHA and immutable in ECR. Every GitHub Action is pinned to a full commit SHA, and the repository requires it. Dependabot alerts and security updates are on, and `.github/dependabot.yml` asks for weekly version updates of the actions, the three apps' packages and their base images; a Dependabot pull request deploys only when merged. CodeQL default setup scans the code, and secret scanning scans the history.
 - The repository is public and holds no secret. Push access to `main` controls what runs in the cluster.
 
@@ -355,12 +356,12 @@ Teardown works on the cluster and in Terraform; the manifests and tag commits st
    aws ec2 describe-network-interfaces --include-managed-resources --filters Name=vpc-id,Values=<vpc_id>
    ```
 
-5. Destroy the state bucket. `force_destroy` empties every object version; the last command then returns `404`:
+5. Destroy the state buckets, the log bucket and the alarm. `force_destroy` empties every object version; the last command then returns `404`. AWS recommends keeping a global-namespace bucket emptied instead of deleting it, so that no one else can take its name; to keep `martin-tfstate-686699774218-us-east-1`, remove its four resources from bootstrap's state before the destroy:
 
    ```bash
    terraform -chdir=infra/bootstrap plan -destroy -out=tfplan
    terraform -chdir=infra/bootstrap apply tfplan
-   aws s3api head-bucket --bucket martin-tfstate-686699774218-us-east-1
+   aws s3api head-bucket --bucket martin-tfstate-686699774218-us-east-1-an
    ```
 
 6. Delete the Identity Center user, by the ID looked up from its exact user name:
