@@ -13,7 +13,7 @@ images:
     newTag: 7e6c770ea5cffa21f0781cabafd2c267ead4d441
   - name: result
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-result
-    newTag: c27e017775979a9583829b9dc0893db838601061
+    newTag: 4876e89d9b8c5613ca8b6bc5d9955f7e0697a22d
   - name: worker
     newName: 686699774218.dkr.ecr.us-east-1.amazonaws.com/martin-worker
     newTag: 7e6c770ea5cffa21f0781cabafd2c267ead4d441
