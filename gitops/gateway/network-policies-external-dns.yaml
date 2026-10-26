@@ -1,0 +1,53 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: external-dns
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: external-dns
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.100.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: external-dns-egress
+  namespace: external-dns
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+  policyTypes:
+    - Egress
+  egress:
+    # Kubernetes API and Route 53.
+    - ports:
+        - protocol: TCP
+          port: 443
+    # EKS Pod Identity agent, for the pod's AWS credentials.
+    - to:
+        - ipBlock:
+            cidr: 169.254.170.23/32
+      ports:
+        - protocol: TCP
+          port: 80
