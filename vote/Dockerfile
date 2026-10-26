@@ -1,9 +1,9 @@
 # base defines a base stage that uses the official python runtime base image
 FROM python:3.15-slim AS base
 
-# Add curl for healthcheck
+# The current security updates of the base image's packages
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
+    apt-get upgrade -y && \
     rm -rf /var/lib/apt/lists/*
 
 # Set the application directory

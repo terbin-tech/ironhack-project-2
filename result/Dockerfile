@@ -1,14 +1,12 @@
 FROM node:24-slim
 
-# add curl for healthcheck
+# The current security updates of the base image's packages, and tini to run node as PID 1
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl tini && \
+    apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends tini && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/local/app
-
-# have nodemon available for local dev use (file watching)
-RUN npm install -g nodemon
 
 COPY package*.json ./
 
@@ -25,7 +23,8 @@ COPY . .
 ADD --chmod=644 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/rds-global-bundle.pem
 
 # Set default environment variables for both the application and PostgreSQL connection
-ENV PORT=80 \
+ENV NODE_ENV=production \
+    PORT=80 \
     PG_HOST=db \
     PG_PORT=5432 \
     PG_USER=postgres \

@@ -4,7 +4,5 @@ ignored:
   # pip install watchdog sits in vote's dev stage, which is never deployed.
   - DL3013
   - DL3042
-  # nodemon is installed globally for local file watching; the image runs node directly, and the teacher's Dockerfile stays as it is.
-  - DL3016
   # DB_USERNAME is a plain default user name, not a secret (false positive).
   - DL3064
