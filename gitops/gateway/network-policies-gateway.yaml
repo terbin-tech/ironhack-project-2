@@ -1,0 +1,118 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: gateway
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: gateway
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 10.100.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nginx-ingress
+  namespace: gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: public-nginx
+  policyTypes:
+    - Ingress
+  ingress:
+    # The NLB's subnets: with client IP preservation off, the pods see the NLB's own addresses.
+    - from:
+        - ipBlock:
+            cidr: 10.0.96.0/24
+        - ipBlock:
+            cidr: 10.0.97.0/24
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nginx-egress
+  namespace: gateway
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: public-nginx
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nginx-gateway
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nginx-gateway-fabric
+      ports:
+        - protocol: TCP
+          port: 8443
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: voting
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - vote
+                  - result
+      ports:
+        - protocol: TCP
+          port: 80
+    # cert-manager's HTTP-01 solver, present only while a certificate is issued.
+    - to:
+        - podSelector:
+            matchLabels:
+              acme.cert-manager.io/http01-solver: "true"
+      ports:
+        - protocol: TCP
+          port: 8089
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: acme-solver-ingress
+  namespace: gateway
+spec:
+  podSelector:
+    matchLabels:
+      acme.cert-manager.io/http01-solver: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: public-nginx
+      ports:
+        - protocol: TCP
+          port: 8089
