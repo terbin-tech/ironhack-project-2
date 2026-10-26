@@ -47,6 +47,40 @@ jobs:
           dockerfile: Dockerfile
           recursive: true
 
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The Python of vote's image
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.15"
+      - run: pip install -r tests/vote/requirements.txt
+      - run: python -m pytest tests/vote
+
+  # Builds the three images from their own folders, as deploy.yml does, and
+  # checks the whole app on the Compose stack.
+  integration-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Compose requires a database password; this stack lives only for the job
+      DB_PASSWORD: ci-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The Node of result's image, for the Socket.IO check
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: docker compose up --build --wait
+      - run: bash tests/integration/check.sh
+      - if: failure()
+        run: docker compose logs
+
   dependency-review:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

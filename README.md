@@ -98,7 +98,8 @@ gitops/
   root/             the Argo CD Applications the root Application watches
   gateway/          gateway namespace, Gateway, HTTPS redirect, ClusterIssuers
   apps/voting/      Kustomize: the three apps, routes, network policies
-.github/workflows/  ci.yml (checks), deploy.yml (images and tag commits)
+.github/workflows/  ci.yml (checks and tests), deploy.yml (images and tag commits)
+tests/              the vote unit test and the integration test on the Compose stack
 vote/ result/ worker/
 docker-compose.yml  builds the three apps from source
 ```
@@ -185,7 +186,7 @@ git pull --rebase
 3. Its last job sets the new `newTag` values in `gitops/apps/voting/kustomization.yaml` and commits them to `main` through GitHub's GraphQL `createCommitOnBranch`, so GitHub signs the commit.
 4. Argo CD sees the new commit on its next poll and rolls out the new image. The pipeline never connects to the cluster and holds no credentials for it.
 
-`ci.yml` runs on every push and pull request except the deploy workflow's own tag commits: they are pushed with the `GITHUB_TOKEN`, and GitHub starts no workflow run from events that token causes ([triggering a workflow from a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)). It runs `terraform fmt` and `validate` for each root, `kubectl kustomize` of the apps, and hadolint on the three Dockerfiles; on pull requests it also runs GitHub's dependency review.
+`ci.yml` runs on every push and pull request except the deploy workflow's own tag commits: they are pushed with the `GITHUB_TOKEN`, and GitHub starts no workflow run from events that token causes ([triggering a workflow from a workflow](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow)). It runs `terraform fmt` and `validate` for each root, `kubectl kustomize` of the apps, hadolint on the three Dockerfiles, a unit test of the vote page (`tests/vote/`, pytest with Flask's test client), and an integration test (`tests/integration/`) that builds the three images from their folders, starts the Compose stack and checks the whole app: the vote page offers both options, a vote cast there is stored in Postgres by the worker, and result pushes the new count over Socket.IO. On pull requests it also runs GitHub's dependency review.
 
 **Pull before you push.** Every deploy adds a tag commit to `main`, so run `git pull --rebase` before pushing. The `main` ruleset blocks force pushes.
 
@@ -202,6 +203,8 @@ docker compose up --build
 ```
 
 Vote at <http://localhost:8080> and see the results at <http://localhost:8081/result/>.
+
+With the stack up, `bash tests/integration/check.sh` runs the same integration test as CI.
 
 ## Validation
 

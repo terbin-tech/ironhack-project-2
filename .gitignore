@@ -10,8 +10,9 @@ worker/obj/
 # Node (result)
 node_modules/
 
-# Python (vote)
+# Python (vote and its tests)
 __pycache__/
+.pytest_cache/
 .venv/
 venv/
 
