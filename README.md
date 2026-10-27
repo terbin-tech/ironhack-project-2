@@ -160,7 +160,7 @@ terraform -chdir=infra/gitops-bridge apply tfplan
 kubectl get applications -n argocd -o custom-columns=NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status
 ```
 
-The plan adds 7 objects. The root Application then creates the platform Applications, and each one ends `Synced` and `Healthy`. It also creates `voting`, whose pods stay pending on missing images until step 4 has pushed them. The gateway's Service makes Auto Mode create the NLB; once the gateway's first route exists (the HTTP to HTTPS redirect in `gitops/gateway/`, before any voting route), ExternalDNS writes `martin.diogo.world` and cert-manager gets the certificate through the gateway.
+The plan adds 13 objects. The root Application then creates the platform Applications, and each one ends `Synced` and `Healthy`. It also creates `voting`, whose pods stay pending on missing images until step 4 has pushed them. The gateway's Service makes Auto Mode create the NLB; once the gateway's first route exists (the HTTP to HTTPS redirect in `gitops/gateway/`, before any voting route), ExternalDNS writes `martin.diogo.world` and cert-manager gets the certificate through the gateway.
 
 The Argo CD UI address comes from Terraform; sign in as the Identity Center user:
 
