@@ -79,7 +79,8 @@ spec:
           resources:
             requests:
               cpu: 100m
-              memory: 128Mi
+              # Equal to the limit, so the scheduler counts what the pod may use
+              memory: 256Mi
             limits:
               cpu: 500m
               memory: 256Mi
