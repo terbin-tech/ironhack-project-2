@@ -42,7 +42,7 @@ flowchart TB
   subgraph aws["AWS us-east-1"]
     argocd["Argo CD, EKS capability, run by AWS outside our nodes"]
     r53["Route 53: martin.diogo.world"]
-    sm["Secrets Manager: RDS-managed secret"]
+    sm["Secrets Manager: RDS-managed database secret, a Valkey secret each for vote and worker"]
     nlb["Network Load Balancer, public, created by Auto Mode"]
     subgraph nodes["EKS Auto Mode nodes, private subnets, 2 AZs"]
       nginx["gateway: NGINX x2, TLS ends here"]
@@ -67,6 +67,7 @@ flowchart TB
   worker -->|"pop vote, TLS 6379"| valkey
   worker -->|"insert, TLS 5432"| rds
   result -->|"read scores, TLS 5432"| rds
+  sm -->|"ASCP, Pod Identity"| vote
   sm -->|"ASCP, Pod Identity"| result
   sm -->|"ASCP, Pod Identity"| worker
   addons -->|"ExternalDNS writes the record"| r53
