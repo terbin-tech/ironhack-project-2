@@ -3,5 +3,9 @@ kind: ConfigMap
 metadata:
   name: amazon-vpc-cni
   namespace: kube-system
+  # Kept when an Application is deleted: the network policy controller removes the
+  # policies' finalizers, so it has to outlive every policy until the cluster goes.
+  annotations:
+    argocd.argoproj.io/sync-options: Delete=false
 data:
   enable-network-policy-controller: "true"

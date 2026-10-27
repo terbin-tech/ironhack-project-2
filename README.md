@@ -330,7 +330,7 @@ Teardown works on the cluster and in Terraform; the manifests and tag commits st
    kubectl patch application root -n argocd --type json -p '[{"op":"remove","path":"/spec/syncPolicy/automated"}]'
    ```
 
-2. Delete the apps, then the gateway. Wait until the NLB is gone and ExternalDNS (still running) has removed `martin.diogo.world` and its TXT records; both checks print `[]`:
+2. Delete the apps, then the gateway. The ConfigMap that turns the network policy controller on carries Argo CD's [`Delete=false`](https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/) option, so the controller keeps removing the policies' finalizers until the cluster itself is destroyed. Wait until the NLB is gone and ExternalDNS (still running) has removed `martin.diogo.world` and its TXT records; both checks print `[]`:
 
    ```bash
    kubectl delete application voting -n argocd --wait --timeout=10m
